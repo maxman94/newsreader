@@ -1,0 +1,179 @@
+# Plugin Architecture
+
+## Overview
+
+Plugins are the core unit of digest composition. A plugin defines how one type
+of content is configured, selected, snapshotted, rendered, and completed.
+
+In the default product model, a plugin instance typically owns one digest page
+or one clearly bounded section.
+
+## Goals
+
+- Let users compose a digest from modular content sources.
+- Keep source-specific logic out of the core app shell.
+- Preserve deterministic daily output.
+- Allow each plugin to own its own config schema and completion rules.
+
+## Concepts
+
+### Plugin definition
+
+A plugin definition is registered by the app and declares:
+
+- Stable plugin ID.
+- Display metadata.
+- Configuration schema.
+- Validation logic.
+- Daily generation logic.
+- Rendering component contract.
+- Completion policy.
+- Capability flags.
+
+### Plugin instance
+
+A plugin instance is a user-configured copy of a plugin definition. Example:
+
+- Plugin definition: `ap-headlines`.
+- Plugin instance: `ap-headlines:home`.
+
+An instance stores:
+
+- Stable instance ID.
+- Plugin definition ID.
+- User-owned config payload.
+- Display order.
+- Enabled state.
+
+### Plugin run
+
+A plugin run is the dated output of one plugin instance for one digest date.
+
+It stores:
+
+- User ID.
+- Digest date.
+- Plugin instance ID.
+- Plugin version.
+- Config snapshot.
+- Selection inputs.
+- Selected content references.
+- Render payload snapshot.
+- Completion metadata.
+- Error state if generation failed.
+
+## Plugin lifecycle
+
+### 1. Configure
+
+User creates and configures a plugin instance.
+
+### 2. Generate
+
+During digest generation, each enabled plugin instance runs a generator for the
+target date.
+
+### 3. Snapshot
+
+The plugin stores a stable dated output so the digest can be re-opened later.
+
+### 4. Render
+
+The app renders the stored payload, not a fresh live fetch.
+
+### 5. Complete
+
+The plugin exposes completion semantics. Completion is persisted for habits and
+archive accuracy.
+
+## Recommended plugin contract
+
+The implementation can vary, but the conceptual contract should look like this:
+
+```ts
+type PluginDefinition<TConfig, TResult, TCompletion> = {
+  id: string;
+  title: string;
+  version: number;
+  capabilities: PluginCapabilities;
+  getDefaultConfig(): TConfig;
+  validateConfig(config: unknown): TConfig;
+  getConfigSuggestions?(context: SuggestionContext): Promise<SuggestionGroup[]>;
+  generateDailyRun(input: DailyRunInput<TConfig>): Promise<PluginRun<TResult>>;
+  renderMode: "native" | "embedded" | "hybrid";
+  completion: CompletionStrategy<TCompletion>;
+};
+```
+
+## Daily generation model
+
+To keep historical digests stable, generation should separate candidate
+resolution from final selection:
+
+1. Resolve candidates from external sources.
+2. Apply filtering from plugin config.
+3. Select final items for the day.
+4. Persist final chosen IDs and render payload.
+
+If step 1 or 3 involves non-deterministic behavior, the result must be stored
+immediately.
+
+## Completion model
+
+Completion should be flexible by plugin type:
+
+- `manual`: user explicitly marks complete.
+- `threshold`: plugin marks complete after a measurable threshold.
+- `unit-complete`: plugin marks complete when the bounded reading/listening unit
+  is finished.
+- `hybrid`: plugin offers automatic completion plus manual override.
+
+## Plugin categories
+
+### Headlines
+
+- Bounded list of stories.
+- Topic filters.
+- Typically manual or threshold completion.
+
+### Long-form reading
+
+- One essay or article set.
+- Preserves chosen piece for the date.
+- Usually unit-complete or manual completion.
+
+### Listening
+
+- One album or audio recommendation.
+- Supports external playback targets.
+- Completion may be manual with optional playback-aware heuristics.
+
+### Comics and strips
+
+- Bounded set of strip or chapter units.
+- Must avoid infinite chapter scroll behavior.
+
+### Backlog-driven reader
+
+- Maintains queue state across days.
+- Chooses the next unread unit according to user order settings.
+
+## Failure handling
+
+Plugin failures should be isolated and explicit.
+
+Failure outcomes:
+
+- `fallback-content`: plugin emits curated fallback content.
+- `empty-run`: plugin occupies its slot with an unavailable state.
+- `skip-run`: plugin is omitted from that day’s digest with a recorded reason.
+
+The chosen failure policy should be plugin-specific and visible in the archive.
+
+## Versioning
+
+- Plugin definitions need semantic versioning or integer migrations.
+- Each stored run records the plugin version used at generation time.
+- Config migrations must preserve user intent.
+- Rendering updates may improve presentation, but should not alter content
+  identity for archived runs.
