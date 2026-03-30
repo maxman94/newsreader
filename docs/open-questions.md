@@ -24,8 +24,8 @@ These are the main questions to resolve in the next review cycle.
 
 ## Technical questions
 
-- What auth implementation best fits Google OAuth in the Netlify deployment
-  model?
+- What Clerk instance settings, redirect URLs, and onboarding flow should
+  be standardized for each deployment environment?
 - What runtime should own on-demand generation, and what should later own
   scheduled generation?
 - How should source credentials be stored and rotated for per-user integrations
@@ -38,7 +38,7 @@ These are the main questions to resolve in the next review cycle.
 
 - Which news sources are licensed and practical for headline and article
   plugins?
-- What is the initial curated pool for Substack or essay recommendations?
+- What is the initial curated pool for RSS-based essay recommendations?
 - If album of the day is in v1, what is the initial source and selection logic?
 - Which legally safe leisure-media plugins are realistic after v1?
 

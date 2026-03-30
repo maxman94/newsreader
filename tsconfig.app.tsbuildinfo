@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/components/ui/button.tsx","./src/lib/utils.ts"],"version":"5.8.3"}
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/ui/button.tsx","./src/data/funny-pages.ts","./src/data/headlines.ts","./src/data/rss-feeds.ts","./src/lib/clerk.ts","./src/lib/http.ts","./src/lib/plugin-factory.ts","./src/lib/utils.ts","./src/types/app.ts","./src/types/digest.ts"],"version":"5.8.3"}

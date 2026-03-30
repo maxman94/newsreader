@@ -20,6 +20,7 @@ Suggested storage domains:
 - `digests`: dated digest and plugin run snapshots.
 - `completion`: per-date and per-plugin completion records.
 - `queues`: backlog state for reader-style plugins.
+- `buckets`: candidate buckets for feed-driven plugins.
 
 ## Core entities
 
@@ -74,6 +75,13 @@ type PluginInstanceConfig = {
   config: Record<string, unknown>;
 };
 ```
+
+For feed-driven plugins, `config` may include:
+
+- A list of RSS feed URLs.
+- Maximum items per day.
+- Selection policy such as `catch-up`, `newest`, or `best-of-the-day`.
+- Source-specific exclusions or priority weights.
 
 ### DailyDigest
 
@@ -135,6 +143,35 @@ type ReadingQueue = {
 };
 ```
 
+### FeedBucket
+
+```ts
+type FeedBucket = {
+  userId: string;
+  instanceId: string;
+  policy: "catch-up" | "newest" | "best-of-the-day" | "balanced";
+  maxItemsPerDay: number;
+  items: FeedBucketItem[];
+  updatedAt: string;
+};
+```
+
+### FeedBucketItem
+
+```ts
+type FeedBucketItem = {
+  candidateId: string;
+  feedId: string;
+  url: string;
+  title: string;
+  publishedAt?: string;
+  fetchedAt: string;
+  state: "available" | "selected" | "completed" | "dismissed";
+  firstSelectedDate?: string;
+  lastSelectedDate?: string;
+};
+```
+
 ## Blob key patterns
 
 Example key layout:
@@ -146,6 +183,7 @@ Example key layout:
 - `users/{userId}/plugin-runs/{yyyy-mm-dd}/{instanceId}`
 - `users/{userId}/completion/{yyyy-mm-dd}/{instanceId}`
 - `users/{userId}/queues/{instanceId}`
+- `users/{userId}/buckets/{instanceId}`
 
 ## Determinism rules
 
@@ -154,6 +192,8 @@ Example key layout:
   reconstruct it.
 - Queue-backed plugins update queue state only after the daily run is committed
   or marked complete, depending on the plugin contract.
+- Feed-bucket plugins persist both the chosen items and the remaining bucket
+  state needed for future selection.
 - Historical digests are immutable by default.
 
 ## Analytics support

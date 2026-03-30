@@ -15,9 +15,12 @@ Give the user a bounded list of essential headlines from a trusted wire source.
 
 ### User config
 
-- Topic selection, such as US news, foreign policy, sports, and culture.
+- Configurable AP source lanes, each with its own label and section.
+- Section choices such as politics, world, business, technology, science,
+  health, climate, sports, arts, books, and travel.
 - Story count target.
 - Optional priority ordering across selected topics.
+- Any AI-assisted ranking mode is labeled as requiring a user OpenAI key.
 
 ### Daily output
 
@@ -68,7 +71,7 @@ Add one substantial long-form read to the digest.
 
 ### Candidate sources
 
-- Substack authors.
+- RSS feeds from essay, newsletter, and blog sources.
 - Curated pools of essays or newsletters.
 - Editorially maintained recommended collections.
 
@@ -102,14 +105,19 @@ Add one substantial long-form read to the digest.
 
 ### User config
 
-- Individual author subscriptions within the app.
+- Individual RSS feed selections within the app.
 - Curated pools.
 - Exclusion list.
 - Length preference.
+- Items per day, typically 1 to 3.
+- Selection policy such as `catch-up`, `newest`, or `best-of-the-day`.
+- Any model-ranked policy is labeled as requiring a user OpenAI key.
 
 ### Daily output
 
-- One selected essay with stable author and post identity.
+- One to three selected entries with stable source and post identity.
+- The plugin also advances or preserves its remaining candidate bucket
+  according to the configured policy.
 
 ### Completion
 
@@ -119,7 +127,7 @@ Add one substantial long-form read to the digest.
 
 ### Release status
 
-- Target: optional v1 if implemented as metadata plus outbound links only.
+- Target: implemented with Plex as the initial source and player.
 
 ### Purpose
 
@@ -127,14 +135,15 @@ Pair the reading routine with one intentional music recommendation.
 
 ### User config
 
-- Genre preferences.
-- New releases versus catalog mix.
-- Preferred playback targets.
-- Plex matching preference.
+- Plex server URL.
+- Plex token.
+- Plex music library section ID.
+- Selection mode, starting with `library-random` and `recently-added`.
 
 ### Daily output
 
-- One album with art, metadata, and playback targets.
+- One album with title, artist, year, tracklist, a short editorial blurb, and
+  in-app Plex playback.
 
 ### Completion
 
@@ -145,8 +154,7 @@ Pair the reading routine with one intentional music recommendation.
 
 ### Release status
 
-- Target: post-v1 unless a legally clean and technically simple source is
-  identified.
+- Target: initial GoComics-backed version implemented.
 
 ### Purpose
 
@@ -154,19 +162,46 @@ Add a small amount of levity through a bounded set of comic strips.
 
 ### User config
 
-- Favorite strips.
-- Daily strip count.
-- Rotation behavior if favorites exceed the daily limit.
+- Favorite strips or other configured GoComics sources.
+- Source order, with one strip shown per configured source.
+- Curated classic-strip presets for fast setup.
 
 ### Daily output
 
-- A page with one or a few selected strips.
+- One single-surface page with a vertical stack of comic strips.
+- One strip per configured source.
 
 ### Completion
 
-- Threshold complete after the day’s strips are viewed.
+- Manual complete by default.
 
-## 6. Reader backlog
+## 6. Manga reader
+
+### Release status
+
+- Target: initial MangaDex-backed version implemented.
+
+### Purpose
+
+Serve one bounded manga reading unit from a configured title each day.
+
+### User config
+
+- MangaDex title URL or manga ID.
+- Translation language.
+- Volumes per day, currently fixed at `1`.
+- Backlog ordering, starting with simple volume order.
+
+### Daily output
+
+- A single card containing title metadata, one selected volume, and the
+  chapters and pages from that volume rendered inline.
+
+### Completion
+
+- Manual complete by default.
+
+## 7. Reader backlog
 
 ### Release status
 
@@ -207,3 +242,5 @@ Serve one bounded reading unit from a configured backlog each day.
   early candidates.
 - Comics and manga integrations need source-rights validation before they are
   considered implementation-ready.
+- AI-ranked plugin modes should always have a deterministic non-AI fallback or a
+  visible locked/disabled state when the user has not configured an OpenAI key.

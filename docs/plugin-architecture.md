@@ -44,6 +44,7 @@ An instance stores:
 - User-owned config payload.
 - Display order.
 - Enabled state.
+- Any durable queue or bucket state required by the plugin's selection policy.
 
 ### Plugin run
 
@@ -80,6 +81,17 @@ The plugin stores a stable dated output so the digest can be re-opened later.
 ### 4. Render
 
 The app renders the stored payload, not a fresh live fetch.
+
+Rendering should follow a consistent reading-surface rule:
+
+- Each plugin page uses one primary rounded card.
+- Header metadata, title, stats, content, and completion stay inside that same
+  card.
+- Internal sections are separated with spacing or horizontal rules rather than
+  additional outer shell cards.
+- Sub-surfaces are acceptable only when functionally necessary, such as an
+  embedded audio player.
+- Future plugin types should default to this single-surface layout.
 
 ### 5. Complete
 
@@ -118,6 +130,37 @@ resolution from final selection:
 If step 1 or 3 involves non-deterministic behavior, the result must be stored
 immediately.
 
+For feed-driven plugins, generation should usually distinguish between:
+
+1. Feed ingestion.
+2. Candidate normalization.
+3. Candidate bucket update.
+4. Daily selection according to the configured policy.
+5. Snapshot of the chosen items and the post-selection bucket state.
+
+This matters because a feed plugin is not only picking "today's" item. It is
+also managing what remains unread or unserved for future digest dates.
+
+## Feed-driven selection policies
+
+RSS and similar feed-driven plugins should support policy-based selection rather
+than a single hard-coded freshness sort.
+
+Examples:
+
+- `catch-up`: prefer older unserved items until the backlog is reduced.
+- `newest`: prefer the most recent eligible items.
+- `best-of-the-day`: use AI or ranking heuristics to choose the strongest item
+  or small set from the current candidate pool.
+- `balanced`: mix recency with backlog pressure.
+
+Each policy should define:
+
+- Candidate eligibility rules.
+- Tie-breaking behavior.
+- Maximum items per day.
+- Whether already-served but incomplete items can resurface.
+
 ## Completion model
 
 Completion should be flexible by plugin type:
@@ -141,6 +184,8 @@ Completion should be flexible by plugin type:
 - One essay or article set.
 - Preserves chosen piece for the date.
 - Usually unit-complete or manual completion.
+- Often backed by a feed bucket or reading queue rather than a single live
+  fetch.
 
 ### Listening
 
@@ -152,11 +197,20 @@ Completion should be flexible by plugin type:
 
 - Bounded set of strip or chapter units.
 - Must avoid infinite chapter scroll behavior.
+- Funny pages style strip plugins should prefer a vertical stack with one strip
+  per configured source.
 
 ### Backlog-driven reader
 
 - Maintains queue state across days.
 - Chooses the next unread unit according to user order settings.
+
+### Feed-driven reader
+
+- Maintains a bucket of fetched but not-yet-served entries.
+- Supports per-instance policies such as `catch-up`, `newest`, or
+  `best-of-the-day`.
+- May select a bounded number of items, such as 1 to 3 entries per day.
 
 ## Failure handling
 

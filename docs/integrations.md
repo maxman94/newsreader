@@ -8,20 +8,47 @@ snapshot content rather than sending users directly into third-party feeds.
 
 ## Authentication
 
-### Google OAuth
+### Clerk
 
-Google OAuth is the starter auth provider.
+Clerk is the starter auth layer.
 
 Requirements:
 
 - Support basic sign-in and sign-out.
-- Store a stable app user ID independent of provider-specific identifiers.
-- Keep provider access details out of client-exposed storage.
+- Support Google as the first enabled external provider.
+- Use Clerk hosted auth flows on the client.
+- Use Clerk session tokens for protected Netlify function calls.
+- Store app-owned settings and digest data keyed to the Clerk user ID.
 
 Implementation note:
 
-- The auth implementation should be wrapped behind an internal auth service so
-  additional providers can be added later.
+- Use the Clerk React SDK on the client and Clerk backend request
+  authentication on the server.
+- Authenticated local development still uses `netlify dev` for functions and
+  blobs, but Clerk allowed origins and redirect URLs must also allow the local
+  origin.
+
+## AI providers
+
+### OpenAI
+
+OpenAI is a user-level optional integration, not a global app dependency.
+
+Requirements:
+
+- Each user may provide their own API key.
+- The key should be treated as a user-owned secret and persisted accordingly.
+- AI-powered selection features must declare their dependency on OpenAI.
+- Non-AI fallback behavior must be documented for each affected plugin mode.
+
+Implementation note:
+
+- Model-based story or feed ranking should run server-side using the specific
+  user’s stored key.
+- The client should only receive a summary such as `hasKey` and selected model,
+  not the stored key value itself.
+- The app should expose a clear `requires OpenAI key` label anywhere a user can
+  choose an AI-dependent algorithm such as `best-of-the-day`.
 
 ## Netlify platform
 
@@ -60,9 +87,29 @@ Requirements:
 - Topic taxonomies should normalize into shared internal categories where
   possible.
 
+POC starting point:
+
+- AP is the first implemented headlines source.
+- AP homepage or section scraping is acceptable for the proof of concept.
+- AI selects from scraped AP candidates, but source content is displayed
+  directly rather than summarized.
+- If headlines move to RSS-first ingestion, prioritize sources with stable,
+  official feeds and clear reuse terms.
+
+Candidate RSS-oriented alternatives to evaluate:
+
+- Reuters News Agency: strong fit for factual wire-style headlines, but RSS
+  delivery is aimed at authenticated customers rather than open public feeds.
+- PBS News: official RSS feeds exist and are operationally simpler for a public
+  web product than agency contracts.
+- BBC Information Syndication API: RSS is available, but only for authorized
+  syndication partners with API keys and contract terms.
+- Deutsche Welle: offers RSS/content-feed models including headline-only and
+  teaser variants, with emphasis on international coverage.
+
 ## Essay and blog sources
 
-### Substack
+### RSS-first essay sources
 
 Desired behavior:
 
@@ -75,6 +122,11 @@ Requirements:
 - Source selection policy must be explicit.
 - The app should distinguish between source recommendation and actual
   subscription management.
+- For the proof of concept, start with a configurable list of RSS feeds rather
+  than scraping publication homepages.
+- AI selects the essay of the day from fetched feed entries and stores a
+  decision log.
+- Model-ranked feed modes should be marked as requiring a user OpenAI key.
 
 Starter curation seeds mentioned so far:
 
@@ -91,6 +143,11 @@ Starter curation seeds mentioned so far:
   thot pudding, Birds Before the Storm, Everything is Personal, The Elif Life,
   and Madwomen and Muses.
 
+Implementation note:
+
+- Some of these sources may still be Substack-hosted, but the proof-of-concept
+  ingestion boundary is RSS rather than homepage scraping.
+
 ## Music integrations
 
 ### Streaming providers
@@ -100,8 +157,15 @@ Apple Music, and TIDAL when feasible.
 
 ### Plex
 
-Plex support should let a user route album-of-the-day playback to a personal
-library when a match exists.
+The current album-of-the-day implementation is Plex-native.
+
+Implementation notes:
+
+- The plugin selects directly from a configured Plex music library section.
+- The stored daily snapshot keeps the chosen album and track metadata.
+- Playback is proxied through the app rather than requiring the browser to talk
+  to Plex directly.
+- Initial selection modes are `library-random` and `recently-added`.
 
 ## Comics and manga sources
 
@@ -117,6 +181,16 @@ Risk note:
 
 - Some comic and manga sites have questionable legality or unstable APIs. These
   should be treated as research items, not implementation assumptions.
+
+Current implementation note:
+
+- The current funny-pages implementation uses GoComics date pages as the
+  initial bounded source for classic strips.
+- It renders one strip per configured source in a vertical stack.
+- The current bounded reader implementation uses MangaDex as the source for
+  title metadata, chapter ordering, and chapter image delivery.
+- The first version is backlog-based: it walks a configured title in volume
+  order and serves the next unread volume each day.
 
 ## Scheduling
 

@@ -25,6 +25,10 @@ experience that feels editorial, calm, and habit-forming.
 - `review-cycle.md`: the planned iteration, gap analysis, and spec review flow.
 - `spec-review-01.md`: first review pass with accept, revise, defer, and cut
   decisions for v1.
+- `spec-review-02.md`: second review pass that locks the proof-of-concept source
+  strategy and AI selection rules.
+- `integration-research-plex-mangadex-mangafire.md`: research notes and
+  recommendations for Plex, MangaDex, and MangaFire integration layers.
 
 ## Product summary
 
@@ -43,7 +47,10 @@ Initial scope assumes:
 - Mobile-first SPA built with React and Vite.
 - Netlify-hosted frontend and server routes/functions.
 - User settings persisted in Netlify Blobs.
-- Google OAuth as the first authentication provider.
+- Clerk as the first authentication layer, with Google enabled as the initial
+  provider.
+- OpenAI used as an optional per-user BYO integration for AI-assisted
+  selection.
 - Plugin-based digest assembly with per-plugin configuration.
 
 ## Review goal
