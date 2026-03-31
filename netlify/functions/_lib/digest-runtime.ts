@@ -2,6 +2,8 @@ import type {
   APStory,
   APStorySelection,
   AlbumSelection,
+  ComicChapterSelection,
+  ComicPluginQueue,
   DecisionLog,
   DigestPage,
   FeedSelectionStrategy,
@@ -21,7 +23,14 @@ import type {
   UserConfig,
 } from "../../../src/types/app";
 import { getAPCandidates, hydrateAPStories } from "./ap";
-import { loadBucket, loadMangaQueue, saveBucket, saveMangaQueue } from "./app-storage";
+import {
+  loadBucket,
+  loadComicQueue,
+  loadMangaQueue,
+  saveBucket,
+  saveComicQueue,
+  saveMangaQueue,
+} from "./app-storage";
 import { createConfigHash } from "./hash";
 import { getFunnyPageStrips } from "./funny-pages";
 import {
@@ -30,6 +39,13 @@ import {
   hydrateMangaSelection,
   mergeMangaQueueItems,
 } from "./mangadex";
+import {
+  getReadComicsChapters,
+  getReadComicsMetadata,
+  hydrateReadComicsSelection,
+  mergeComicQueueItems,
+} from "./readcomiconline";
+import { getReutersCandidates, hydrateReutersStories } from "./reuters";
 import { selectAPStories, selectRssEntries } from "./openai";
 import { selectPlexAlbum } from "./plex";
 import { getEssayCandidates, hydrateRssEntries } from "./rss";
@@ -86,6 +102,17 @@ function toStoredMangaChapter(entry: MangaChapterSelection): MangaChapterSelecti
   };
 }
 
+function toStoredComicChapter(entry: ComicChapterSelection): ComicChapterSelection {
+  return {
+    id: entry.id,
+    title: entry.title,
+    issue: entry.issue,
+    publishAt: entry.publishAt,
+    pages: entry.pages,
+    sourceUrl: entry.sourceUrl,
+  };
+}
+
 function createAlbumDecisionLog(
   pluginInstanceId: string,
   strategy: string,
@@ -138,8 +165,10 @@ function createPolicyDecisionLog(
 function createMangaDecisionLog(
   pluginInstanceId: string,
   items: MangaChapterSelection[],
+  sourceLabel: string,
 ): DecisionLog {
-  const volume = items[0]?.volume ?? "?";
+  const volume = items[0]?.volume?.trim();
+  const isVolume = Boolean(volume);
 
   return {
     pluginInstanceId,
@@ -148,11 +177,34 @@ function createMangaDecisionLog(
     generatedAt: new Date().toISOString(),
     strategy: "fallback",
     selectedIds: items.map((item) => item.id),
-    rationale:
-      `Selected the next unread MangaDex volume, taking all unread chapters from volume ${volume}.`,
+    rationale: isVolume
+      ? `Selected the next unread volume from ${sourceLabel}, taking the full volume together.`
+      : `Selected the next unread non-volume chapter set from ${sourceLabel} after the numbered volumes.`,
     entries: items.map((item) => ({
       id: item.id,
-      reason: `Chosen as part of the next unread volume ${item.volume ?? "?"}.`,
+      reason: isVolume
+        ? `Chosen as part of the next unread volume ${item.volume ?? "?"}.`
+        : "Chosen from the next unread non-volume chapter set.",
+    })),
+  };
+}
+
+function createReadComicsDecisionLog(
+  pluginInstanceId: string,
+  items: ComicChapterSelection[],
+  sourceLabel: string,
+): DecisionLog {
+  return {
+    pluginInstanceId,
+    pluginType: "readcomiconline-reader",
+    model: "policy:backlog",
+    generatedAt: new Date().toISOString(),
+    strategy: "fallback",
+    selectedIds: items.map((item) => item.id),
+    rationale: `Selected the next unread chapter from ${sourceLabel} in backlog order.`,
+    entries: items.map((item) => ({
+      id: item.id,
+      reason: `Chosen as the next unread chapter: ${item.title}.`,
     })),
   };
 }
@@ -286,15 +338,16 @@ async function selectRssPage(
   return { page, decisionLog };
 }
 
-async function selectAPPage(
+async function selectHeadlinePage(
   date: string,
-  plugin: Extract<PluginInstance, { type: "ap-headlines" }>,
+  plugin: Extract<PluginInstance, { type: "ap-headlines" | "reuters-headlines" }>,
   aiSettings: StoredAISettings,
+  getCandidates: () => Promise<APStory[]>,
 ) {
-  const candidates = await getAPCandidates(plugin.config.sources);
+  const candidates = await getCandidates();
 
   if (candidates.length === 0) {
-    throw new Error(`No AP candidates available for plugin ${plugin.title}.`);
+    throw new Error(`No headline candidates available for plugin ${plugin.title}.`);
   }
 
   const result = await selectAPStories(
@@ -302,13 +355,14 @@ async function selectAPPage(
     plugin.config.storyCount,
     date,
     plugin.instanceId,
+    plugin.type,
     aiSettings,
   );
 
   const page: PersistedDigestPage = {
     id: `${plugin.instanceId}-${date}`,
     pluginInstanceId: plugin.instanceId,
-    pluginType: "ap-headlines",
+    pluginType: plugin.type,
     title: plugin.title,
     estimatedMinutes: Math.max(
       plugin.estimatedMinutes,
@@ -318,6 +372,24 @@ async function selectAPPage(
   };
 
   return { page, decisionLog: result.decisionLog };
+}
+
+async function selectAPPage(
+  date: string,
+  plugin: Extract<PluginInstance, { type: "ap-headlines" }>,
+  aiSettings: StoredAISettings,
+) {
+  return selectHeadlinePage(date, plugin, aiSettings, () => getAPCandidates(plugin.config.sources));
+}
+
+async function selectReutersPage(
+  date: string,
+  plugin: Extract<PluginInstance, { type: "reuters-headlines" }>,
+  aiSettings: StoredAISettings,
+) {
+  return selectHeadlinePage(date, plugin, aiSettings, () =>
+    getReutersCandidates(plugin.config.sources),
+  );
 }
 
 async function selectAlbumPage(
@@ -360,8 +432,53 @@ function estimateMinutesFromPages(pageCount: number) {
   return Math.max(10, Math.ceil(pageCount / 2));
 }
 
-function mangaVolumeKey(item: MangaChapterSelection) {
-  return item.volume?.trim() || "oneshot";
+function parseNumericVolume(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function replaceQueueItemsForSource<
+  T extends { sourceId: string },
+>(items: T[], sourceId: string, nextItems: T[]) {
+  return [...items.filter((item) => item.sourceId !== sourceId), ...nextItems];
+}
+
+function buildMangaUnits(items: MangaPluginQueue["items"]) {
+  const numberedVolumes = new Map<string, MangaPluginQueue["items"]>();
+  const nonVolumeChapters: MangaPluginQueue["items"] = [];
+
+  for (const item of [...items].sort((left, right) => left.sortKey.localeCompare(right.sortKey))) {
+    const volume = item.volume?.trim();
+    const numericVolume = parseNumericVolume(volume);
+
+    if (volume && numericVolume !== null) {
+      const group = numberedVolumes.get(volume) ?? [];
+      group.push(item);
+      numberedVolumes.set(volume, group);
+      continue;
+    }
+
+    nonVolumeChapters.push(item);
+  }
+
+  const volumeUnits = [...numberedVolumes.entries()]
+    .sort((left, right) => {
+      const leftValue = parseNumericVolume(left[0]) ?? Number.POSITIVE_INFINITY;
+      const rightValue = parseNumericVolume(right[0]) ?? Number.POSITIVE_INFINITY;
+
+      if (leftValue !== rightValue) {
+        return leftValue - rightValue;
+      }
+
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([, group]) => group);
+
+  return [...volumeUnits, ...nonVolumeChapters.map((chapter) => [chapter])];
 }
 
 async function selectMangaPage(
@@ -369,32 +486,39 @@ async function selectMangaPage(
   date: string,
   plugin: Extract<PluginInstance, { type: "mangadex-reader" }>,
 ) {
-  const currentQueue = await loadMangaQueue(
-    userId,
-    plugin.instanceId,
-    plugin.config.mangaId,
-    plugin.config.translatedLanguage,
-  );
-  const [metadata, fetchedChapters] = await Promise.all([
-    getMangaDexMetadata(plugin.config.mangaId, plugin.config.translatedLanguage),
-    getMangaDexChapters(plugin.config.mangaId, plugin.config.translatedLanguage),
-  ]);
-  const mergedItems = mergeMangaQueueItems(currentQueue.items, fetchedChapters);
-  const available = mergedItems.filter((item) => !item.servedDate);
+  const currentQueue = await loadMangaQueue(userId, plugin.instanceId);
+  const configuredSourceIds = new Set(plugin.config.series.map((source) => source.id));
+  let queueItems = currentQueue.items.filter((item) => configuredSourceIds.has(item.sourceId));
+  let selected = null as MangaPluginQueue["items"] | null;
+  let selectedSource = null as Extract<typeof plugin.config.series[number], object> | null;
+  let metadata = null as Awaited<ReturnType<typeof getMangaDexMetadata>> | null;
 
-  if (available.length === 0) {
+  for (const source of plugin.config.series) {
+    const existingItems = queueItems.filter((item) => item.sourceId === source.id);
+    const fetchedChapters = await getMangaDexChapters(source.mangaId, source.translatedLanguage);
+    const mergedSeriesItems = mergeMangaQueueItems(existingItems, fetchedChapters, source);
+
+    queueItems = replaceQueueItemsForSource(queueItems, source.id, mergedSeriesItems);
+
+    const availableUnits = buildMangaUnits(mergedSeriesItems.filter((item) => !item.servedDate));
+
+    if (availableUnits.length > 0) {
+      selected = availableUnits[0];
+      selectedSource = source;
+      metadata = await getMangaDexMetadata(source.mangaId, source.translatedLanguage);
+      break;
+    }
+  }
+
+  if (!selected || !selectedSource || !metadata) {
     throw new Error(`No unread MangaDex chapters available for plugin ${plugin.title}.`);
   }
 
-  const nextVolume = mangaVolumeKey(available[0]);
-  const selected = available.filter((item) => mangaVolumeKey(item) === nextVolume);
   const selectedIds = new Set(selected.map((item) => item.id));
   const queue: MangaPluginQueue = {
     ...currentQueue,
-    mangaId: plugin.config.mangaId,
-    translatedLanguage: plugin.config.translatedLanguage,
     updatedAt: new Date().toISOString(),
-    items: mergedItems.map((item) =>
+    items: queueItems.map((item) =>
       selectedIds.has(item.id)
         ? {
             ...item,
@@ -408,8 +532,10 @@ async function selectMangaPage(
 
   const pageCount = selected.reduce((total, chapter) => total + Math.max(0, chapter.pages), 0);
   const manga: PersistedMangaSelection = {
+    sourceId: selectedSource.id,
+    sourceLabel: selectedSource.label,
     ...metadata,
-    translatedLanguage: plugin.config.translatedLanguage,
+    translatedLanguage: selectedSource.translatedLanguage,
     chapters: selected.map((chapter) => toStoredMangaChapter(chapter)),
   };
   const page: PersistedDigestPage = {
@@ -424,7 +550,80 @@ async function selectMangaPage(
 
   return {
     page,
-    decisionLog: createMangaDecisionLog(plugin.instanceId, selected),
+    decisionLog: createMangaDecisionLog(plugin.instanceId, selected, selectedSource.label),
+  };
+}
+
+async function selectReadComicsPage(
+  userId: string,
+  date: string,
+  plugin: Extract<PluginInstance, { type: "readcomiconline-reader" }>,
+) {
+  const currentQueue = await loadComicQueue(userId, plugin.instanceId);
+  const configuredSourceIds = new Set(plugin.config.series.map((source) => source.id));
+  let queueItems = currentQueue.items.filter((item) => configuredSourceIds.has(item.sourceId));
+  let selected = null as ComicPluginQueue["items"] | null;
+  let selectedSource = null as Extract<typeof plugin.config.series[number], object> | null;
+  let metadata = null as Awaited<ReturnType<typeof getReadComicsMetadata>> | null;
+
+  for (const source of plugin.config.series) {
+    const existingItems = queueItems.filter((item) => item.sourceId === source.id);
+    const fetchedChapters = await getReadComicsChapters(source);
+    const mergedSeriesItems = mergeComicQueueItems(existingItems, fetchedChapters, source);
+
+    queueItems = replaceQueueItemsForSource(queueItems, source.id, mergedSeriesItems);
+
+    const available = mergedSeriesItems.filter((item) => !item.servedDate);
+
+    if (available.length > 0) {
+      selected = [available[0]];
+      selectedSource = source;
+      metadata = await getReadComicsMetadata(source.seriesUrl);
+      break;
+    }
+  }
+
+  if (!selected || !selectedSource || !metadata) {
+    throw new Error(`No unread ReadComicsOnline chapters available for plugin ${plugin.title}.`);
+  }
+
+  const selectedIds = new Set(selected.map((item) => item.id));
+  const queue: ComicPluginQueue = {
+    ...currentQueue,
+    updatedAt: new Date().toISOString(),
+    items: queueItems.map((item) =>
+      selectedIds.has(item.id)
+        ? {
+            ...item,
+            servedDate: item.servedDate ?? date,
+          }
+        : item,
+    ),
+  };
+
+  await saveComicQueue(userId, queue);
+
+  const comic = {
+    sourceId: selectedSource.id,
+    sourceLabel: selectedSource.label,
+    seriesUrl: metadata.seriesUrl,
+    title: metadata.title,
+    description: metadata.description,
+    chapters: selected.map((chapter) => toStoredComicChapter(chapter)),
+  };
+  const page: PersistedDigestPage = {
+    id: `${plugin.instanceId}-${date}`,
+    pluginInstanceId: plugin.instanceId,
+    pluginType: "readcomiconline-reader",
+    title: plugin.title,
+    estimatedMinutes: plugin.estimatedMinutes,
+    comic,
+    strategy: plugin.config.strategy,
+  };
+
+  return {
+    page,
+    decisionLog: createReadComicsDecisionLog(plugin.instanceId, selected, selectedSource.label),
   };
 }
 
@@ -463,6 +662,13 @@ export async function hydrateDigest(storedDigest: PersistedDigest): Promise<Stor
         };
       }
 
+      if (page.pluginType === "reuters-headlines") {
+        return {
+          ...page,
+          stories: await hydrateReutersStories(page.stories),
+        };
+      }
+
       if (page.pluginType === "album-of-the-day") {
         return page;
       }
@@ -471,6 +677,13 @@ export async function hydrateDigest(storedDigest: PersistedDigest): Promise<Stor
         return {
           ...page,
           manga: await hydrateMangaSelection(page.manga),
+        };
+      }
+
+      if (page.pluginType === "readcomiconline-reader") {
+        return {
+          ...page,
+          comic: await hydrateReadComicsSelection(page.comic),
         };
       }
 
@@ -499,30 +712,25 @@ export async function buildDigestForUser(
 ): Promise<PersistedDigest> {
   const pages: PersistedDigestPage[] = [];
   const decisionLogs: DecisionLog[] = [];
+  const builders: {
+    [K in PluginInstance["type"]]: (
+      plugin: Extract<PluginInstance, { type: K }>,
+    ) => Promise<{ page: PersistedDigestPage; decisionLog: DecisionLog }>;
+  } = {
+    "ap-headlines": (plugin) => selectAPPage(date, plugin, aiSettings),
+    "reuters-headlines": (plugin) => selectReutersPage(date, plugin, aiSettings),
+    "rss-reader": (plugin) => selectRssPage(userId, date, plugin, aiSettings),
+    "album-of-the-day": (plugin) => selectAlbumPage(date, plugin),
+    "mangadex-reader": (plugin) => selectMangaPage(userId, date, plugin),
+    "readcomiconline-reader": (plugin) => selectReadComicsPage(userId, date, plugin),
+    "funny-pages": (plugin) => selectFunnyPagesPage(date, plugin),
+  };
 
   for (const plugin of config.plugins.filter((entry) => entry.enabled)) {
     try {
-      if (plugin.type === "ap-headlines") {
-        const result = await selectAPPage(date, plugin, aiSettings);
-        pages.push(result.page);
-        decisionLogs.push(result.decisionLog);
-      } else if (plugin.type === "rss-reader") {
-        const result = await selectRssPage(userId, date, plugin, aiSettings);
-        pages.push(result.page);
-        decisionLogs.push(result.decisionLog);
-      } else if (plugin.type === "album-of-the-day") {
-        const result = await selectAlbumPage(date, plugin);
-        pages.push(result.page);
-        decisionLogs.push(result.decisionLog);
-      } else if (plugin.type === "mangadex-reader") {
-        const result = await selectMangaPage(userId, date, plugin);
-        pages.push(result.page);
-        decisionLogs.push(result.decisionLog);
-      } else if (plugin.type === "funny-pages") {
-        const result = await selectFunnyPagesPage(date, plugin);
-        pages.push(result.page);
-        decisionLogs.push(result.decisionLog);
-      }
+      const result = await builders[plugin.type](plugin as never);
+      pages.push(result.page);
+      decisionLogs.push(result.decisionLog);
     } catch (error) {
       console.error(`Failed to render plugin ${plugin.instanceId}`, error);
     }

@@ -1,6 +1,7 @@
 import { getStore } from "@netlify/blobs";
 import type {
   AISettings,
+  ComicPluginQueue,
   CompletionRecord,
   MangaPluginQueue,
   PersistedDigest,
@@ -211,16 +212,12 @@ export async function saveBucket(userId: string, bucket: RssPluginBucket) {
 export async function loadMangaQueue(
   userId: string,
   instanceId: string,
-  mangaId: string,
-  translatedLanguage: string,
 ) {
   const result = await readJson<MangaPluginQueue>(keyFor(userId, `manga-queues/${instanceId}`));
 
   return (
     result.value ?? {
       instanceId,
-      mangaId,
-      translatedLanguage,
       updatedAt: new Date().toISOString(),
       items: [],
     }
@@ -229,4 +226,20 @@ export async function loadMangaQueue(
 
 export async function saveMangaQueue(userId: string, queue: MangaPluginQueue) {
   return writeJson(keyFor(userId, `manga-queues/${queue.instanceId}`), queue);
+}
+
+export async function loadComicQueue(userId: string, instanceId: string) {
+  const result = await readJson<ComicPluginQueue>(keyFor(userId, `comic-queues/${instanceId}`));
+
+  return (
+    result.value ?? {
+      instanceId,
+      updatedAt: new Date().toISOString(),
+      items: [],
+    }
+  );
+}
+
+export async function saveComicQueue(userId: string, queue: ComicPluginQueue) {
+  return writeJson(keyFor(userId, `comic-queues/${queue.instanceId}`), queue);
 }

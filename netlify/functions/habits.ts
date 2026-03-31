@@ -3,11 +3,25 @@ import { listDigestDates, loadCompletion, loadUserConfig, loadUserDigest } from 
 import { jsonResponse } from "./_lib/api";
 import { requireIdentityUser } from "./_lib/identity";
 
-function recentDates(days: number) {
+function formatDateInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+
+  return `${year}-${month}-${day}`;
+}
+
+function recentDates(days: number, timeZone: string) {
   return Array.from({ length: days }, (_, index) => {
     const date = new Date();
-    date.setUTCDate(date.getUTCDate() - (days - index - 1));
-    return date.toISOString().slice(0, 10);
+    date.setDate(date.getDate() - (days - index - 1));
+    return formatDateInTimeZone(date, timeZone);
   });
 }
 
@@ -17,8 +31,10 @@ export default async function habits(request: Request) {
     const config = await loadUserConfig(user.id);
     const url = new URL(request.url);
     const requestedDays = Number(url.searchParams.get("days") ?? "7");
+    const timeZone = url.searchParams.get("tz")?.trim() || "UTC";
     const days = recentDates(
       Number.isFinite(requestedDays) ? Math.min(Math.max(Math.round(requestedDays), 7), 31) : 7,
+      timeZone,
     );
     const archiveDates = new Set(await listDigestDates(user.id));
     const dailyData = await Promise.all(

@@ -2,6 +2,7 @@ import type {
   MangaChapter,
   MangaChapterSelection,
   MangaQueueItem,
+  MangaSource,
   MangaSelection,
   PersistedMangaSelection,
 } from "../../../src/types/app";
@@ -225,6 +226,7 @@ export async function getMangaDexChapters(mangaId: string, translatedLanguage: s
 export function mergeMangaQueueItems(
   currentItems: MangaQueueItem[],
   fetched: MangaChapterSelection[],
+  source: MangaSource,
 ) {
   const now = new Date().toISOString();
   const map = new Map(
@@ -244,6 +246,10 @@ export function mergeMangaQueueItems(
     map.set(item.id, {
       ...existing,
       ...item,
+      sourceId: source.id,
+      sourceLabel: source.label,
+      mangaId: source.mangaId,
+      translatedLanguage: source.translatedLanguage,
       sortKey: existing?.sortKey ?? sortKey(item.volume, item.chapter),
       addedAt: existing?.addedAt ?? now,
       servedDate: existing?.servedDate,

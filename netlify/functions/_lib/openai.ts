@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { APStory, DecisionLog, Essay, RssEntry } from "../../../src/types/app";
+import type { APStory, DecisionLog, Essay, PluginType, RssEntry } from "../../../src/types/app";
 import { DEFAULT_OPENAI_MODEL } from "./constants";
 
 function clip(text: string, limit: number) {
@@ -25,6 +25,7 @@ export async function selectAPStories(
   headlineCount: number,
   date: string,
   pluginInstanceId = "ap-headlines",
+  pluginType: PluginType = "ap-headlines",
   aiSettings?: {
     apiKey?: string;
     model?: string;
@@ -34,7 +35,7 @@ export async function selectAPStories(
   const model = aiSettings?.model?.trim() || DEFAULT_OPENAI_MODEL;
 
   if (!apiKey) {
-    return fallbackAPSelection(candidates, headlineCount, pluginInstanceId);
+    return fallbackAPSelection(candidates, headlineCount, pluginInstanceId, pluginType);
   }
 
   const client = new OpenAI({ apiKey });
@@ -82,14 +83,14 @@ export async function selectAPStories(
   }>(content);
 
   if (!parsed?.selectedIds?.length) {
-    return fallbackAPSelection(candidates, headlineCount, pluginInstanceId);
+    return fallbackAPSelection(candidates, headlineCount, pluginInstanceId, pluginType);
   }
 
   const allowed = new Set(candidates.map((candidate) => candidate.id));
   const selectedIds = parsed.selectedIds.filter((id) => allowed.has(id)).slice(0, headlineCount);
 
   if (selectedIds.length === 0) {
-    return fallbackAPSelection(candidates, headlineCount, pluginInstanceId);
+    return fallbackAPSelection(candidates, headlineCount, pluginInstanceId, pluginType);
   }
 
   const stories = selectedIds
@@ -100,7 +101,7 @@ export async function selectAPStories(
     stories,
     decisionLog: {
       pluginInstanceId,
-      pluginType: "ap-headlines",
+      pluginType,
       model,
       generatedAt: new Date().toISOString(),
       strategy: "openai",
@@ -242,7 +243,12 @@ export async function selectEssay(
   };
 }
 
-function fallbackAPSelection(candidates: APStory[], headlineCount: number, pluginInstanceId: string) {
+function fallbackAPSelection(
+  candidates: APStory[],
+  headlineCount: number,
+  pluginInstanceId: string,
+  pluginType: PluginType,
+) {
   const byTopic = new Map<string, APStory[]>();
 
   for (const candidate of candidates) {
@@ -276,7 +282,7 @@ function fallbackAPSelection(candidates: APStory[], headlineCount: number, plugi
     stories: selected,
     decisionLog: {
       pluginInstanceId,
-      pluginType: "ap-headlines",
+      pluginType,
       model: "heuristic-fallback",
       generatedAt: new Date().toISOString(),
       strategy: "fallback",

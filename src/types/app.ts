@@ -17,6 +17,8 @@ export type AlbumSelectionStrategy = "library-random" | "recently-added";
 
 export type MangaSelectionStrategy = "backlog";
 
+export type ReadComicsSelectionStrategy = "backlog";
+
 export type ThemeMode = "light" | "dark";
 
 export type ColorScheme =
@@ -35,9 +37,11 @@ export type FontScale = "sm" | "md" | "lg";
 
 export type PluginType =
   | "ap-headlines"
+  | "reuters-headlines"
   | "rss-reader"
   | "album-of-the-day"
   | "mangadex-reader"
+  | "readcomiconline-reader"
   | "funny-pages";
 
 export type RssSource = {
@@ -46,11 +50,15 @@ export type RssSource = {
   url: string;
 };
 
-export type APHeadlineSource = {
+export type HeadlinesSource = {
   id: string;
   label: string;
   topic: APTopic;
 };
+
+export type APHeadlineSource = HeadlinesSource;
+
+export type ReutersHeadlineSource = HeadlinesSource;
 
 export type FunnyPagesProvider = "gocomics" | "latest-webcomic";
 
@@ -60,6 +68,19 @@ export type FunnyPagesSource = {
   provider: FunnyPagesProvider;
   slug?: string;
   url?: string;
+};
+
+export type MangaSource = {
+  id: string;
+  label: string;
+  mangaId: string;
+  translatedLanguage: string;
+};
+
+export type ReadComicsSource = {
+  id: string;
+  label: string;
+  seriesUrl: string;
 };
 
 export type DigestConfig = {
@@ -113,6 +134,18 @@ export type APHeadlinesPluginInstance = {
   };
 };
 
+export type ReutersHeadlinesPluginInstance = {
+  instanceId: string;
+  type: "reuters-headlines";
+  title: string;
+  enabled: boolean;
+  estimatedMinutes: number;
+  config: {
+    sources: ReutersHeadlineSource[];
+    storyCount: number;
+  };
+};
+
 export type RssReaderPluginInstance = {
   instanceId: string;
   type: "rss-reader";
@@ -149,10 +182,23 @@ export type MangaDexReaderPluginInstance = {
   estimatedMinutes: number;
   config: {
     source: "mangadex";
-    mangaId: string;
-    translatedLanguage: string;
+    series: MangaSource[];
     volumesPerDay: number;
     strategy: MangaSelectionStrategy;
+  };
+};
+
+export type ReadComicsOnlineReaderPluginInstance = {
+  instanceId: string;
+  type: "readcomiconline-reader";
+  title: string;
+  enabled: boolean;
+  estimatedMinutes: number;
+  config: {
+    source: "readcomiconline";
+    series: ReadComicsSource[];
+    chaptersPerDay: number;
+    strategy: ReadComicsSelectionStrategy;
   };
 };
 
@@ -169,9 +215,11 @@ export type FunnyPagesPluginInstance = {
 
 export type PluginInstance =
   | APHeadlinesPluginInstance
+  | ReutersHeadlinesPluginInstance
   | RssReaderPluginInstance
   | AlbumOfTheDayPluginInstance
   | MangaDexReaderPluginInstance
+  | ReadComicsOnlineReaderPluginInstance
   | FunnyPagesPluginInstance;
 
 export type UserConfig = {
@@ -282,6 +330,8 @@ export type MangaChapter = MangaChapterSelection & {
 };
 
 export type MangaSelection = {
+  sourceId: string;
+  sourceLabel: string;
   mangaId: string;
   sourceUrl: string;
   title: string;
@@ -298,6 +348,10 @@ export type PersistedMangaSelection = Omit<MangaSelection, "chapters"> & {
 };
 
 export type MangaQueueItem = MangaChapterSelection & {
+  sourceId: string;
+  sourceLabel: string;
+  mangaId: string;
+  translatedLanguage: string;
   sortKey: string;
   addedAt: string;
   servedDate?: string;
@@ -305,10 +359,49 @@ export type MangaQueueItem = MangaChapterSelection & {
 
 export type MangaPluginQueue = {
   instanceId: string;
-  mangaId: string;
-  translatedLanguage: string;
   updatedAt: string;
   items: MangaQueueItem[];
+};
+
+export type ComicChapterSelection = {
+  id: string;
+  title: string;
+  issue?: string;
+  publishAt?: string;
+  pages: number;
+  sourceUrl: string;
+};
+
+export type ComicChapter = ComicChapterSelection & {
+  imageUrls: string[];
+};
+
+export type ComicSelection = {
+  sourceId: string;
+  sourceLabel: string;
+  seriesUrl: string;
+  title: string;
+  description: string;
+  chapters: ComicChapter[];
+};
+
+export type PersistedComicSelection = Omit<ComicSelection, "chapters"> & {
+  chapters: ComicChapterSelection[];
+};
+
+export type ComicQueueItem = ComicChapterSelection & {
+  sourceId: string;
+  sourceLabel: string;
+  seriesUrl: string;
+  sortKey: string;
+  addedAt: string;
+  servedDate?: string;
+};
+
+export type ComicPluginQueue = {
+  instanceId: string;
+  updatedAt: string;
+  items: ComicQueueItem[];
 };
 
 export type DigestPage =
@@ -316,6 +409,14 @@ export type DigestPage =
       id: string;
       pluginInstanceId: string;
       pluginType: "ap-headlines";
+      title: string;
+      estimatedMinutes: number;
+      stories: APStory[];
+    }
+  | {
+      id: string;
+      pluginInstanceId: string;
+      pluginType: "reuters-headlines";
       title: string;
       estimatedMinutes: number;
       stories: APStory[];
@@ -350,6 +451,15 @@ export type DigestPage =
   | {
       id: string;
       pluginInstanceId: string;
+      pluginType: "readcomiconline-reader";
+      title: string;
+      estimatedMinutes: number;
+      comic: ComicSelection;
+      strategy: ReadComicsSelectionStrategy;
+    }
+  | {
+      id: string;
+      pluginInstanceId: string;
       pluginType: "funny-pages";
       title: string;
       estimatedMinutes: number;
@@ -361,6 +471,14 @@ export type PersistedDigestPage =
       id: string;
       pluginInstanceId: string;
       pluginType: "ap-headlines";
+      title: string;
+      estimatedMinutes: number;
+      stories: APStorySelection[];
+    }
+  | {
+      id: string;
+      pluginInstanceId: string;
+      pluginType: "reuters-headlines";
       title: string;
       estimatedMinutes: number;
       stories: APStorySelection[];
@@ -391,6 +509,15 @@ export type PersistedDigestPage =
       estimatedMinutes: number;
       manga: PersistedMangaSelection;
       strategy: MangaSelectionStrategy;
+    }
+  | {
+      id: string;
+      pluginInstanceId: string;
+      pluginType: "readcomiconline-reader";
+      title: string;
+      estimatedMinutes: number;
+      comic: PersistedComicSelection;
+      strategy: ReadComicsSelectionStrategy;
     }
   | {
       id: string;

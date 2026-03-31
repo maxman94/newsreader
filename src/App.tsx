@@ -19,6 +19,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { hasClerkConfig } from "@/lib/clerk";
 import { requestJson } from "@/lib/http";
@@ -30,8 +31,12 @@ import {
   createHeadlineSourceDraft,
   createFunnyPagesPlugin,
   createFunnyPagesSourceDraft,
+  createMangaSourceDraft,
   createMangaPlugin,
+  createReadComicsPlugin,
+  createReadComicsSourceDraft,
   createRssPlugin,
+  createReutersPlugin,
 } from "@/lib/plugin-factory";
 import { FUNNY_PAGES_GROUPS } from "@/data/funny-pages";
 import { RSS_PRESET_GROUPS } from "@/data/rss-feeds";
@@ -86,6 +91,72 @@ const MORNING_MODIFIERS = [
   "deliberate",
   "contained",
   "edited",
+];
+const PLUGIN_DEFINITIONS: Record<
+  PluginType,
+  {
+    Icon: LucideIcon;
+    addLabel: string;
+    settingsDescription: string;
+    create: (index: number) => PluginInstance;
+  }
+> = {
+  "ap-headlines": {
+    Icon: Newspaper,
+    addLabel: "Add headlines",
+    settingsDescription:
+      "A brisk front page, arranged by the sections you want to keep close.",
+    create: createApPlugin,
+  },
+  "reuters-headlines": {
+    Icon: Newspaper,
+    addLabel: "Add Reuters",
+    settingsDescription:
+      "A second front page in a Reuters voice, for a cleaner wire-service read.",
+    create: createReutersPlugin,
+  },
+  "rss-reader": {
+    Icon: BookOpenText,
+    addLabel: "Add reader",
+    settingsDescription:
+      "A deeper page for essays, columns, and pieces worth keeping company with.",
+    create: createRssPlugin,
+  },
+  "album-of-the-day": {
+    Icon: Disc3,
+    addLabel: "Add album",
+    settingsDescription: "One record for the day, with its tracklist and a place to press play.",
+    create: createAlbumPlugin,
+  },
+  "mangadex-reader": {
+    Icon: BookOpenText,
+    addLabel: "Add manga",
+    settingsDescription:
+      "An ordered manga shelf: one volume at a time, then the remaining chapters.",
+    create: createMangaPlugin,
+  },
+  "readcomiconline-reader": {
+    Icon: BookOpenText,
+    addLabel: "Add comics",
+    settingsDescription:
+      "An ordered comics shelf, moving chapter by chapter through the series you choose.",
+    create: createReadComicsPlugin,
+  },
+  "funny-pages": {
+    Icon: Sparkles,
+    addLabel: "Add funny pages",
+    settingsDescription: "A small stack of strips, one from each page you keep in the rotation.",
+    create: createFunnyPagesPlugin,
+  },
+};
+const PLUGIN_ADD_ORDER: PluginType[] = [
+  "ap-headlines",
+  "reuters-headlines",
+  "rss-reader",
+  "funny-pages",
+  "album-of-the-day",
+  "mangadex-reader",
+  "readcomiconline-reader",
 ];
 const TYPOGRAPHY_PREVIEW_STYLES: Record<
   TypographyPreset,
@@ -340,6 +411,22 @@ function clonePreferences(preferences: UserPreferences) {
   return JSON.parse(JSON.stringify(preferences)) as UserPreferences;
 }
 
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= items.length || toIndex >= items.length) {
+    return items;
+  }
+
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
+function firstName(value?: string) {
+  const candidate = value?.trim().split(/\s+/)[0];
+  return candidate && candidate.length > 0 ? candidate : "there";
+}
+
 function completionStatus(completion: CompletionRecord | null, pluginInstanceId: string) {
   return completion?.plugins[pluginInstanceId]?.completed ?? false;
 }
@@ -351,39 +438,32 @@ function funnyPagesSourceKey(source: { provider: string; slug?: string; url?: st
 }
 
 function pluginTabIcon(pluginType: PluginType) {
-  if (pluginType === "ap-headlines") {
-    return <Newspaper className="size-4" />;
-  }
-
-  if (pluginType === "album-of-the-day") {
-    return <Disc3 className="size-4" />;
-  }
-
-  if (pluginType === "funny-pages") {
-    return <Sparkles className="size-4" />;
-  }
-
-  return <BookOpenText className="size-4" />;
+  const { Icon } = PLUGIN_DEFINITIONS[pluginType];
+  return <Icon className="size-4" />;
 }
 
 function pluginSettingsDescription(plugin: PluginInstance) {
-  if (plugin.type === "ap-headlines") {
-    return "A configurable front page with cleaner source lanes and stronger section choices.";
+  return PLUGIN_DEFINITIONS[plugin.type].settingsDescription;
+}
+
+function createUniquePlugin(
+  plugins: PluginInstance[],
+  pluginType: PluginType,
+) {
+  const definition = PLUGIN_DEFINITIONS[pluginType];
+  let index = 1;
+
+  while (index < 1000) {
+    const candidate = definition.create(index);
+
+    if (!plugins.some((plugin) => plugin.instanceId === candidate.instanceId)) {
+      return candidate;
+    }
+
+    index += 1;
   }
 
-  if (plugin.type === "rss-reader") {
-    return "A deeper reading page for essays, columns, and worthwhile long-form pieces.";
-  }
-
-  if (plugin.type === "album-of-the-day") {
-    return "One album to spend time with, complete with tracklist and playback.";
-  }
-
-  if (plugin.type === "funny-pages") {
-    return "A vertical stack of classic strips, one from each selected source.";
-  }
-
-  return "One volume a day from a configured MangaDex series.";
+  return definition.create(Date.now());
 }
 
 function StatPill({ label, value }: { label: string; value: string }) {
@@ -531,12 +611,12 @@ function CompletionButton({
       {complete ? (
         <>
           <Check className="mr-2 size-4" />
-          Complete
+          Finished
         </>
       ) : (
         <>
           <BookCheck className="mr-2 size-4" />
-          Mark complete
+          Mark finished
         </>
       )}
     </Button>
@@ -549,7 +629,7 @@ function APPageView({
   complete,
   onToggleComplete,
 }: {
-  page: Extract<DigestPage, { pluginType: "ap-headlines" }>;
+  page: Extract<DigestPage, { pluginType: "ap-headlines" | "reuters-headlines" }>;
   completionDisabled: boolean;
   complete: boolean;
   onToggleComplete: () => void;
@@ -593,7 +673,7 @@ function APPageView({
                   rel="noreferrer"
                   target="_blank"
                 >
-                  Original story
+                  Read at source
                 </a>
               </div>
             </div>
@@ -654,7 +734,7 @@ function RSSPageView({ page }: { page: Extract<DigestPage, { pluginType: "rss-re
                 rel="noreferrer"
                 target="_blank"
               >
-                Open original post
+                Read at source
               </a>
             </div>
           );
@@ -726,7 +806,7 @@ function AlbumPageView({
         void audioRef.current?.play().catch(() => undefined);
       });
     } catch (error) {
-      setPlayerError(error instanceof Error ? error.message : "Failed to load this track.");
+      setPlayerError(error instanceof Error ? error.message : "This track could not be loaded.");
     } finally {
       setLoadingTrackId(null);
     }
@@ -752,13 +832,13 @@ function AlbumPageView({
 
       <div className="mt-6 rounded-[1.5rem] border border-border bg-background/80 p-4">
         <div className="flex items-center gap-3">
-          <Disc3 className="size-5 text-primary" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-foreground">
-              {activeTrack ? activeTrack.title : "Select a track"}
+            <Disc3 className="size-5 text-primary" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-foreground">
+                {activeTrack ? activeTrack.title : "Choose a track"}
+              </div>
+              <div className="text-xs text-muted-foreground">{page.album.artist}</div>
             </div>
-            <div className="text-xs text-muted-foreground">{page.album.artist}</div>
-          </div>
         </div>
 
         <audio
@@ -830,40 +910,48 @@ function AlbumPageView({
   );
 }
 
-function MangaPageView({
-  page,
+type ReaderImagePage = {
+  key: string;
+  title: string;
+  sublabel: string;
+  imageUrl: string;
+  imageIndex: number;
+  pageCount: number;
+  sourceUrl: string;
+};
+
+function PagedImageReaderSurface({
+  badge,
+  title,
+  summary,
+  estimatedMinutes,
+  totalPages,
+  pages,
+  emptyLabel,
+  openLabel,
   complete,
   completionDisabled,
   onToggleComplete,
 }: {
-  page: Extract<DigestPage, { pluginType: "mangadex-reader" }>;
+  badge: string;
+  title: string;
+  summary: string;
+  estimatedMinutes: number;
+  totalPages: number;
+  pages: ReaderImagePage[];
+  emptyLabel: string;
+  openLabel: string;
   complete: boolean;
   completionDisabled: boolean;
   onToggleComplete: () => void;
 }) {
-  const readerPages = useMemo(
-    () =>
-      page.manga.chapters.flatMap((chapter) =>
-        chapter.imageUrls.map((imageUrl, imageIndex) => ({
-          chapterId: chapter.id,
-          chapterTitle: chapter.title,
-          chapterNumber: chapter.chapter,
-          volume: chapter.volume,
-          imageUrl,
-          imageIndex,
-          pageCount: chapter.imageUrls.length,
-        })),
-      ),
-    [page],
-  );
   const [readerIndex, setReaderIndex] = useState(0);
-  const totalPages = page.manga.chapters.reduce((total, chapter) => total + chapter.pages, 0);
-  const activeReaderPage = readerPages[readerIndex] ?? null;
-  const progress = readerPages.length > 0 ? ((readerIndex + 1) / readerPages.length) * 100 : 0;
+  const activeReaderPage = pages[readerIndex] ?? null;
+  const progress = pages.length > 0 ? ((readerIndex + 1) / pages.length) * 100 : 0;
 
   useEffect(() => {
     setReaderIndex(0);
-  }, [page]);
+  }, [pages]);
 
   return (
     <article className="rounded-[2rem] border border-border/80 bg-background/90 p-5 shadow-[0_24px_70px_var(--shadow)]">
@@ -871,16 +959,13 @@ function MangaPageView({
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/60 px-3 py-1 text-xs uppercase tracking-[0.22em] text-muted-foreground">
             <BookOpenText className="size-3.5" />
-            Manga
+            {badge}
           </div>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">{page.title}</h2>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {page.manga.chapters[0]?.volume ? `Volume ${page.manga.chapters[0].volume}` : "One-shot"} from{" "}
-            {page.manga.title}.
-          </p>
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">{title}</h2>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">{summary}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <StatPill label="Minutes" value={`${page.estimatedMinutes}`} />
+          <StatPill label="Minutes" value={`${estimatedMinutes}`} />
           <StatPill label="Pages" value={totalPages.toLocaleString()} />
         </div>
       </div>
@@ -889,24 +974,19 @@ function MangaPageView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              {activeReaderPage?.volume ? `Vol. ${activeReaderPage.volume}` : "One-shot"}
-              {activeReaderPage?.chapterNumber ? ` • Chapter ${activeReaderPage.chapterNumber}` : ""}
+              {activeReaderPage?.sublabel ?? emptyLabel}
             </div>
             <h3 className="mt-2 text-xl font-semibold tracking-tight text-foreground">
-              {activeReaderPage?.chapterTitle ?? page.title}
+              {activeReaderPage?.title ?? title}
             </h3>
           </div>
           <a
             className="inline-flex items-center rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm transition hover:border-primary hover:text-primary"
-            href={
-              activeReaderPage
-                ? `https://mangadex.org/chapter/${activeReaderPage.chapterId}`
-                : page.manga.sourceUrl
-            }
+            href={activeReaderPage?.sourceUrl}
             rel="noreferrer"
             target="_blank"
           >
-            Open on MangaDex
+            {openLabel}
           </a>
         </div>
 
@@ -919,27 +999,26 @@ function MangaPageView({
           </div>
           <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
             <span>
-              Page {Math.min(readerIndex + 1, Math.max(readerPages.length, 1))} of{" "}
-              {Math.max(readerPages.length, 1)}
+              Page {Math.min(readerIndex + 1, Math.max(pages.length, 1))} of {Math.max(pages.length, 1)}
             </span>
             <span>
               {activeReaderPage
-                ? `${activeReaderPage.imageIndex + 1} / ${activeReaderPage.pageCount} in chapter`
-                : "No pages"}
+                ? `${activeReaderPage.imageIndex + 1} / ${activeReaderPage.pageCount} in this section`
+                : "No pages yet"}
             </span>
           </div>
         </div>
 
         {activeReaderPage ? (
           <img
-            alt={`${activeReaderPage.chapterTitle} page ${activeReaderPage.imageIndex + 1}`}
+            alt={`${activeReaderPage.title} page ${activeReaderPage.imageIndex + 1}`}
             className="mt-5 w-full rounded-[1rem] border border-border bg-background"
             loading="lazy"
             src={activeReaderPage.imageUrl}
           />
         ) : (
           <div className="mt-5 rounded-[1rem] border border-border bg-background/80 px-4 py-8 text-center text-sm text-muted-foreground">
-            No pages are available for this volume.
+            {emptyLabel}
           </div>
         )}
 
@@ -952,10 +1031,8 @@ function MangaPageView({
             Previous page
           </Button>
           <Button
-            disabled={readerPages.length === 0 || readerIndex >= readerPages.length - 1}
-            onClick={() =>
-              setReaderIndex((current) => Math.min(readerPages.length - 1, current + 1))
-            }
+            disabled={pages.length === 0 || readerIndex >= pages.length - 1}
+            onClick={() => setReaderIndex((current) => Math.min(pages.length - 1, current + 1))}
           >
             Next page
           </Button>
@@ -970,6 +1047,104 @@ function MangaPageView({
         />
       </div>
     </article>
+  );
+}
+
+function MangaPageView({
+  page,
+  complete,
+  completionDisabled,
+  onToggleComplete,
+}: {
+  page: Extract<DigestPage, { pluginType: "mangadex-reader" }>;
+  complete: boolean;
+  completionDisabled: boolean;
+  onToggleComplete: () => void;
+}) {
+  const pages = useMemo(
+    () =>
+      page.manga.chapters.flatMap((chapter) =>
+        chapter.imageUrls.map((imageUrl, imageIndex) => ({
+          key: `${chapter.id}-${imageIndex}`,
+          title: chapter.title,
+          sublabel: chapter.volume
+            ? `Vol. ${chapter.volume}${chapter.chapter ? ` • Chapter ${chapter.chapter}` : ""}`
+            : chapter.chapter
+              ? `Chapter ${chapter.chapter}`
+              : "Non-volume chapter",
+          imageUrl,
+          imageIndex,
+          pageCount: chapter.imageUrls.length,
+          sourceUrl: `https://mangadex.org/chapter/${chapter.id}`,
+        })),
+      ),
+    [page],
+  );
+  const totalPages = page.manga.chapters.reduce((total, chapter) => total + chapter.pages, 0);
+
+  return (
+    <PagedImageReaderSurface
+      badge="Manga"
+      title={page.title}
+      summary={
+        page.manga.chapters[0]?.volume
+          ? `Volume ${page.manga.chapters[0].volume} from ${page.manga.title}.`
+          : `The next unread chapter from ${page.manga.title}.`
+      }
+      estimatedMinutes={page.estimatedMinutes}
+      totalPages={totalPages}
+      pages={pages}
+      emptyLabel="No pages are available for this selection."
+      openLabel="Open on MangaDex"
+      complete={complete}
+      completionDisabled={completionDisabled}
+      onToggleComplete={onToggleComplete}
+    />
+  );
+}
+
+function ComicsPageView({
+  page,
+  complete,
+  completionDisabled,
+  onToggleComplete,
+}: {
+  page: Extract<DigestPage, { pluginType: "readcomiconline-reader" }>;
+  complete: boolean;
+  completionDisabled: boolean;
+  onToggleComplete: () => void;
+}) {
+  const pages = useMemo(
+    () =>
+      page.comic.chapters.flatMap((chapter) =>
+        chapter.imageUrls.map((imageUrl, imageIndex) => ({
+          key: `${chapter.id}-${imageIndex}`,
+          title: chapter.title,
+          sublabel: chapter.issue ? `Issue ${chapter.issue}` : "Chapter",
+          imageUrl,
+          imageIndex,
+          pageCount: chapter.imageUrls.length,
+          sourceUrl: chapter.sourceUrl,
+        })),
+      ),
+    [page],
+  );
+  const totalPages = page.comic.chapters.reduce((total, chapter) => total + chapter.pages, 0);
+
+  return (
+    <PagedImageReaderSurface
+      badge="Comics"
+      title={page.title}
+      summary={`${page.comic.chapters[0]?.title ?? "Today's chapter"} from ${page.comic.title}.`}
+      estimatedMinutes={page.estimatedMinutes}
+      totalPages={totalPages}
+      pages={pages}
+      emptyLabel="No pages are available for this chapter."
+      openLabel="Read at source"
+      complete={complete}
+      completionDisabled={completionDisabled}
+      onToggleComplete={onToggleComplete}
+    />
   );
 }
 
@@ -1014,7 +1189,7 @@ function FunnyPagesView({
                 rel="noreferrer"
                 target="_blank"
               >
-                Open original strip
+                Read at source
               </a>
             </div>
             <img
@@ -1045,14 +1220,14 @@ function MissingClerkConfig() {
         <section className="w-full rounded-[2.5rem] border border-border/80 bg-background/85 p-8 shadow-[0_28px_90px_var(--shadow)] backdrop-blur">
           <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/60 px-3 py-1 text-xs uppercase tracking-[0.22em] text-muted-foreground">
             <Sparkles className="size-3.5" />
-            Clerk required
+            Sign-in
           </div>
           <h1 className="mt-6 text-4xl font-semibold tracking-tight text-foreground">
-            Clerk environment variables are missing.
+            Sign-in is not configured yet.
           </h1>
           <p className="mt-4 text-lg leading-8 text-muted-foreground">
-            Set `VITE_CLERK_PUBLISHABLE_KEY`, `CLERK_PUBLISHABLE_KEY`, and
-            `CLERK_SECRET_KEY` before running the app.
+            Add `VITE_CLERK_PUBLISHABLE_KEY`, `CLERK_PUBLISHABLE_KEY`, and
+            `CLERK_SECRET_KEY` before starting the app.
           </p>
         </section>
       </div>
@@ -1122,7 +1297,7 @@ function AuthenticatedApp() {
     const token = await getToken();
 
     if (!token) {
-      throw new Error("Missing Clerk session token.");
+      throw new Error("Your sign-in session has expired. Please sign in again.");
     }
 
     return requestJson<T>(input, {
@@ -1193,10 +1368,10 @@ function AuthenticatedApp() {
         bootstrappedUserRef.current = null;
         logApp("bootstrap:error", {
           message:
-            requestError instanceof Error ? requestError.message : "Failed to bootstrap the app.",
+            requestError instanceof Error ? requestError.message : "We could not open your edition.",
         });
         setError(
-          requestError instanceof Error ? requestError.message : "Failed to bootstrap the app.",
+          requestError instanceof Error ? requestError.message : "We could not open your edition.",
         );
       } finally {
         logApp("bootstrap:end", { showLoader });
@@ -1266,7 +1441,10 @@ function AuthenticatedApp() {
 
     async function loadHabits() {
       try {
-        const payload = await authorizedRequest<HabitsResponse>("/.netlify/functions/habits?days=7", {
+        const url = new URL("/.netlify/functions/habits", window.location.origin);
+        url.searchParams.set("days", "7");
+        url.searchParams.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+        const payload = await authorizedRequest<HabitsResponse>(`${url.pathname}${url.search}`, {
           method: "GET",
         });
 
@@ -1276,7 +1454,7 @@ function AuthenticatedApp() {
       } catch (requestError) {
         if (!cancelled) {
           setError(
-            requestError instanceof Error ? requestError.message : "Failed to load habits.",
+            requestError instanceof Error ? requestError.message : "We could not load your reading week.",
           );
         }
       }
@@ -1326,9 +1504,9 @@ function AuthenticatedApp() {
     } catch (requestError) {
       logApp("digest:error", {
         date,
-        message: requestError instanceof Error ? requestError.message : "Failed to load digest.",
+        message: requestError instanceof Error ? requestError.message : "We could not load this edition.",
       });
-      setError(requestError instanceof Error ? requestError.message : "Failed to load digest.");
+      setError(requestError instanceof Error ? requestError.message : "We could not load this edition.");
     } finally {
       logApp("digest:end", { date });
       setLoadingDigest(false);
@@ -1354,7 +1532,7 @@ function AuthenticatedApp() {
       setPreferences(payload.preferences);
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Failed to save appearance settings.",
+        requestError instanceof Error ? requestError.message : "We could not save your reading settings.",
       );
     } finally {
       setSavingPreferences(false);
@@ -1386,7 +1564,7 @@ function AuthenticatedApp() {
       }
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Failed to save AI settings.",
+        requestError instanceof Error ? requestError.message : "We could not save your editorial settings.",
       );
     } finally {
       setSavingAISettings(false);
@@ -1416,7 +1594,7 @@ function AuthenticatedApp() {
       }
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Failed to save digest configuration.",
+        requestError instanceof Error ? requestError.message : "We could not save your pages.",
       );
     } finally {
       setSavingConfig(false);
@@ -1458,7 +1636,7 @@ function AuthenticatedApp() {
       setHabits(null);
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Failed to update completion.",
+        requestError instanceof Error ? requestError.message : "We could not save that just yet.",
       );
     } finally {
       setSavingCompletion(false);
@@ -1469,7 +1647,7 @@ function AuthenticatedApp() {
     const token = await getToken();
 
     if (!token) {
-      throw new Error("Missing Clerk session token.");
+      throw new Error("Your sign-in session has expired. Please sign in again.");
     }
     const url = new URL("/.netlify/functions/plex-stream", window.location.origin);
 
@@ -1484,7 +1662,7 @@ function AuthenticatedApp() {
     });
 
     if (!response.ok) {
-      let message = "Failed to load track.";
+      let message = "This track could not be loaded.";
 
       try {
         const payload = (await response.json()) as { error?: string };
@@ -1552,11 +1730,9 @@ function AuthenticatedApp() {
         return current;
       }
 
-      const plugins = [...current.plugins];
-      const [plugin] = plugins.splice(index, 1);
-      plugins.splice(targetIndex, 0, plugin);
-
-      return { plugins };
+      return {
+        plugins: moveArrayItem(current.plugins, index, targetIndex),
+      };
     });
   }
 
@@ -1572,14 +1748,14 @@ function AuthenticatedApp() {
     if (!digest || !activePage) {
       return (
         <div className="rounded-[2rem] border border-border/80 bg-background/80 p-6 shadow-[0_24px_70px_var(--shadow)]">
-          <p className="text-sm text-muted-foreground">Nothing has been prepared for this date yet.</p>
+          <p className="text-sm text-muted-foreground">Nothing is ready for this date yet.</p>
         </div>
       );
     }
 
     const complete = completionStatus(completion, activePage.pluginInstanceId);
 
-    if (activePage.pluginType === "ap-headlines") {
+    if (activePage.pluginType === "ap-headlines" || activePage.pluginType === "reuters-headlines") {
       return (
         <APPageView
           page={activePage}
@@ -1608,6 +1784,17 @@ function AuthenticatedApp() {
     if (activePage.pluginType === "mangadex-reader") {
       return (
         <MangaPageView
+          page={activePage}
+          complete={complete}
+          completionDisabled={savingCompletion}
+          onToggleComplete={() => void markComplete(activePage.pluginInstanceId, !complete)}
+        />
+      );
+    }
+
+    if (activePage.pluginType === "readcomiconline-reader") {
+      return (
+        <ComicsPageView
           page={activePage}
           complete={complete}
           completionDisabled={savingCompletion}
@@ -1713,10 +1900,9 @@ function AuthenticatedApp() {
                   <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
                     Habits
                   </div>
-                  <h2 className="mt-3 text-2xl font-semibold">Completion matrix</h2>
+                  <h2 className="mt-3 text-2xl font-semibold">A week in pages</h2>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Enough structure to help a reading habit stick, without turning your morning
-                    into homework.
+                    A quiet record of what you finished, enough structure to help the habit hold.
                   </p>
                 </div>
               </div>
@@ -1735,7 +1921,7 @@ function AuthenticatedApp() {
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0 max-w-xl">
                 <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
-                  Good morning, {session.user.name.split(" ")[0]}.
+                  Good morning, {firstName(session.user.name)}.
                 </h1>
               </div>
               <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">
@@ -1797,13 +1983,23 @@ function AuthenticatedApp() {
               <aside className="rounded-[2rem] border border-border/80 bg-background/80 p-4 shadow-[0_24px_70px_var(--shadow)]">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold">Archive</h2>
-                  <Button variant="outline" size="sm" onClick={() => void loadDigest(today())}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setView("today");
+
+                      if (selectedDate !== today()) {
+                        void loadDigest(today());
+                      }
+                    }}
+                  >
                     Today
                   </Button>
                 </div>
                 <div className="mt-4 space-y-2">
                   {archiveDates.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No archived digests yet.</p>
+                    <p className="text-sm text-muted-foreground">Your archive will begin here.</p>
                   ) : (
                     archiveDates.map((date) => (
                       <button
@@ -1836,7 +2032,7 @@ function AuthenticatedApp() {
                 <div>
                   <h2 className="text-2xl font-semibold tracking-tight">Reading habits</h2>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    A quiet record of what you finished, with the last week laid out below.
+                    A quiet record of what you finished over the last seven days.
                   </p>
                 </div>
               </div>
@@ -1902,7 +2098,7 @@ function AuthenticatedApp() {
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight">Account</h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Sign out here when you want to leave this device.
+                      Signed in on this device. Leave whenever you like.
                     </p>
                   </div>
                   <SignOutButton redirectUrl={window.location.origin}>
@@ -1918,7 +2114,7 @@ function AuthenticatedApp() {
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight">Appearance</h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      A restrained reading surface with color, contrast, and typography controls.
+                      Tune the page until it feels like a place you want to read.
                     </p>
                   </div>
                   <Button disabled={savingPreferences} onClick={() => void saveAppearance()}>
@@ -2033,20 +2229,20 @@ function AuthenticatedApp() {
               {aiSettings ? (
                 <section className="rounded-[2rem] border border-border/80 bg-background/80 p-5 shadow-[0_24px_70px_var(--shadow)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-2xl font-semibold tracking-tight">Editorial ranking</h2>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        If you want a more editorial sense of what belongs today, you can connect
-                        your own OpenAI key. Otherwise the app sticks to simple, dependable rules.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight">Editorial picks</h2>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      If you want a stronger editorial hand, connect your own OpenAI key.
+                      Otherwise Newsreader sticks to simple, dependable rules.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                       <Button
                         variant="outline"
                         disabled={savingAISettings || !aiSettings.hasKey}
                         onClick={() => void saveAISettings(true)}
                       >
-                        Clear key
+                        Remove key
                       </Button>
                       <Button disabled={savingAISettings} onClick={() => void saveAISettings()}>
                         {savingAISettings ? (
@@ -2055,7 +2251,7 @@ function AuthenticatedApp() {
                             Saving
                           </>
                         ) : (
-                          "Save AI settings"
+                          "Save editorial settings"
                         )}
                       </Button>
                     </div>
@@ -2063,7 +2259,7 @@ function AuthenticatedApp() {
 
                   <div className="mt-6 grid gap-4 md:grid-cols-2">
                     <label className="block">
-                      <span className="text-sm font-medium text-foreground">OpenAI model</span>
+                      <span className="text-sm font-medium text-foreground">Model</span>
                       <input
                         className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
                         type="text"
@@ -2082,12 +2278,12 @@ function AuthenticatedApp() {
                     </label>
 
                     <label className="block">
-                      <span className="text-sm font-medium text-foreground">OpenAI API key</span>
+                      <span className="text-sm font-medium text-foreground">Your OpenAI key</span>
                       <input
                         className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
                         type="password"
                         autoComplete="off"
-                        placeholder={aiSettings.hasKey ? "Enter a new key to replace the current one." : "sk-..."}
+                        placeholder={aiSettings.hasKey ? "Paste a new key to replace the one on file." : "sk-..."}
                         value={openAIKeyDraft}
                         onChange={(event) => setOpenAIKeyDraft(event.target.value)}
                       />
@@ -2106,90 +2302,36 @@ function AuthenticatedApp() {
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight">Reading pages</h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Shape the daily edition to your taste. Changes affect what comes next, not
-                      what you have already read.
+                      Arrange the edition to your taste. Changes shape what comes next, not what is already on the shelf.
                     </p>
                   </div>
                   <div className="flex w-full flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        setConfig((current) =>
-                          current
-                              ? {
-                                  plugins: [...current.plugins, createApPlugin(current.plugins.length + 1)],
-                                }
-                              : current,
-                          )
-                        }
-                      >
-                        <Plus className="mr-2 size-4" />
-                        Add headlines
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() =>
-                          setConfig((current) =>
-                            current
-                              ? {
-                                  plugins: [...current.plugins, createRssPlugin(current.plugins.length + 1)],
-                                }
-                              : current,
-                          )
-                        }
-                    >
-                        <Plus className="mr-2 size-4" />
-                        Add reader
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        setConfig((current) =>
-                          current
-                            ? {
-                                plugins: [
-                                  ...current.plugins,
-                                  createFunnyPagesPlugin(current.plugins.length + 1),
-                                ],
-                              }
-                            : current,
-                        )
-                      }
-                    >
-                      <Plus className="mr-2 size-4" />
-                      Add funny pages
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        setConfig((current) =>
-                          current
-                            ? {
-                                plugins: [...current.plugins, createAlbumPlugin(current.plugins.length + 1)],
-                              }
-                            : current,
-                        )
-                      }
-                    >
-                      <Plus className="mr-2 size-4" />
-                      Add album
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        setConfig((current) =>
-                          current
-                            ? {
-                                plugins: [...current.plugins, createMangaPlugin(current.plugins.length + 1)],
-                              }
-                            : current,
-                        )
-                      }
-                    >
-                      <Plus className="mr-2 size-4" />
-                      Add manga
-                    </Button>
+                      {PLUGIN_ADD_ORDER.map((pluginType) => {
+                        const definition = PLUGIN_DEFINITIONS[pluginType];
+
+                        return (
+                          <Button
+                            key={pluginType}
+                            variant="outline"
+                            onClick={() =>
+                              setConfig((current) =>
+                                current
+                                  ? {
+                                      plugins: [
+                                        ...current.plugins,
+                                        createUniquePlugin(current.plugins, pluginType),
+                                      ],
+                                    }
+                                  : current,
+                              )
+                            }
+                          >
+                            <Plus className="mr-2 size-4" />
+                            {definition.addLabel}
+                          </Button>
+                        );
+                      })}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -2203,7 +2345,7 @@ function AuthenticatedApp() {
                             Refreshing
                           </>
                         ) : (
-                          "Force refresh"
+                          "Refresh today"
                         )}
                       </Button>
                       <Button disabled={savingConfig} onClick={() => void savePluginConfig()}>
@@ -2276,7 +2418,7 @@ function AuthenticatedApp() {
                               }))
                             }
                           >
-                            {plugin.enabled ? "Enabled" : "Disabled"}
+                            {plugin.enabled ? "In the edition" : "Out of the edition"}
                           </button>
                           <button
                             className="inline-flex items-center rounded-full border border-border px-4 py-2 text-sm font-medium text-muted-foreground"
@@ -2308,7 +2450,7 @@ function AuthenticatedApp() {
                             </label>
 
                             <label className="block">
-                              <span className="text-sm font-medium text-foreground">Estimated minutes</span>
+                              <span className="text-sm font-medium text-foreground">Reading time</span>
                               <input
                                 className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
                                 type="number"
@@ -2324,7 +2466,7 @@ function AuthenticatedApp() {
                               />
                             </label>
 
-                            {plugin.type === "ap-headlines" ? (
+                            {plugin.type === "ap-headlines" || plugin.type === "reuters-headlines" ? (
                               <label className="block">
                                 <span className="text-sm font-medium text-foreground">Story count</span>
                                 <input
@@ -2335,7 +2477,7 @@ function AuthenticatedApp() {
                                   value={plugin.config.storyCount}
                                   onChange={(event) =>
                                     updatePlugin(plugin.instanceId, (current) =>
-                                      current.type === "ap-headlines"
+                                      current.type === "ap-headlines" || current.type === "reuters-headlines"
                                         ? {
                                             ...current,
                                             config: {
@@ -2374,7 +2516,7 @@ function AuthenticatedApp() {
                               </label>
                             ) : plugin.type === "album-of-the-day" ? (
                               <label className="block">
-                                <span className="text-sm font-medium text-foreground">Selection strategy</span>
+                                <span className="text-sm font-medium text-foreground">How to choose</span>
                                 <select
                                   className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
                                   value={plugin.config.strategy}
@@ -2409,6 +2551,16 @@ function AuthenticatedApp() {
                                   value={`${plugin.config.comics.length}`}
                                 />
                               </label>
+                            ) : plugin.type === "readcomiconline-reader" ? (
+                              <label className="block">
+                                <span className="text-sm font-medium text-foreground">Chapters per day</span>
+                                <input
+                                  className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-muted-foreground"
+                                  type="text"
+                                  readOnly
+                                  value="1"
+                                />
+                              </label>
                             ) : (
                               <label className="block">
                                 <span className="text-sm font-medium text-foreground">Volumes per day</span>
@@ -2422,17 +2574,17 @@ function AuthenticatedApp() {
                             )}
                           </div>
 
-                          {plugin.type === "ap-headlines" ? (
+                          {plugin.type === "ap-headlines" || plugin.type === "reuters-headlines" ? (
                             <div className="mt-5">
                               <div className="space-y-3">
                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                  <div className="text-sm font-medium text-foreground">Headline sources</div>
+                                  <div className="text-sm font-medium text-foreground">Sections</div>
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
                                       updatePlugin(plugin.instanceId, (current) =>
-                                        current.type === "ap-headlines"
+                                        current.type === "ap-headlines" || current.type === "reuters-headlines"
                                           ? {
                                               ...current,
                                               config: {
@@ -2448,7 +2600,7 @@ function AuthenticatedApp() {
                                     }
                                   >
                                     <Plus className="mr-2 size-4" />
-                                    Add source
+                                    Add section
                                   </Button>
                                 </div>
 
@@ -2469,7 +2621,7 @@ function AuthenticatedApp() {
                                         type="button"
                                         onClick={() =>
                                           updatePlugin(plugin.instanceId, (current) =>
-                                            current.type === "ap-headlines"
+                                            current.type === "ap-headlines" || current.type === "reuters-headlines"
                                               ? active
                                                 ? {
                                                     ...current,
@@ -2513,7 +2665,7 @@ function AuthenticatedApp() {
                                           value={source.label}
                                           onChange={(event) =>
                                             updatePlugin(plugin.instanceId, (current) =>
-                                              current.type === "ap-headlines"
+                                              current.type === "ap-headlines" || current.type === "reuters-headlines"
                                                 ? {
                                                     ...current,
                                                     config: {
@@ -2534,7 +2686,7 @@ function AuthenticatedApp() {
                                           value={source.topic}
                                           onChange={(event) =>
                                             updatePlugin(plugin.instanceId, (current) =>
-                                              current.type === "ap-headlines"
+                                              current.type === "ap-headlines" || current.type === "reuters-headlines"
                                                 ? {
                                                     ...current,
                                                     config: {
@@ -2564,7 +2716,7 @@ function AuthenticatedApp() {
                                           disabled={plugin.config.sources.length <= 1}
                                           onClick={() =>
                                             updatePlugin(plugin.instanceId, (current) =>
-                                              current.type === "ap-headlines"
+                                              current.type === "ap-headlines" || current.type === "reuters-headlines"
                                                 ? {
                                                     ...current,
                                                     config: {
@@ -2589,7 +2741,7 @@ function AuthenticatedApp() {
                           ) : plugin.type === "rss-reader" ? (
                             <div className="mt-5 space-y-4">
                               <label className="block">
-                                <span className="text-sm font-medium text-foreground">Selection strategy</span>
+                                <span className="text-sm font-medium text-foreground">How to choose</span>
                                 <select
                                   className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
                                   value={plugin.config.strategy}
@@ -2610,7 +2762,7 @@ function AuthenticatedApp() {
                                   {STRATEGIES.map((strategy) => (
                                     <option key={strategy} value={strategy}>
                                       {strategy === "best-of-day"
-                                        ? "best of the day (uses your OpenAI key)"
+                                        ? "Best of the day (uses your OpenAI key)"
                                         : strategy}
                                     </option>
                                   ))}
@@ -2681,7 +2833,7 @@ function AuthenticatedApp() {
                                 </div>
 
                                 <div className="flex items-center justify-between gap-3">
-                                  <div className="text-sm font-medium text-foreground">Feeds</div>
+                                  <div className="text-sm font-medium text-foreground">Sources</div>
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -2700,7 +2852,7 @@ function AuthenticatedApp() {
                                     }
                                   >
                                     <Plus className="mr-2 size-4" />
-                                    Add feed
+                                    Add source
                                   </Button>
                                 </div>
 
@@ -2847,8 +2999,8 @@ function AuthenticatedApp() {
                               </label>
 
                               <p className="md:col-span-2 text-sm leading-6 text-muted-foreground">
-                                Point this page at your Plex music library and it will pick something
-                                worth sitting with.
+                                Point this page at your music library and it will choose something
+                                worth giving the room to.
                               </p>
                             </div>
                           ) : plugin.type === "funny-pages" ? (
@@ -3065,70 +3217,336 @@ function AuthenticatedApp() {
                               </div>
 
                               <p className="text-sm leading-6 text-muted-foreground">
-                                One strip is shown per source. Use a GoComics slug like{" "}
+                                One strip appears from each source. Use a GoComics slug like{" "}
                                 <span className="font-medium text-foreground">peanuts</span>, or a
                                 direct comic-page URL for sources like Penny Arcade or SMBC.
                               </p>
                             </div>
+                          ) : plugin.type === "mangadex-reader" ? (
+                            <div className="mt-5 space-y-4">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="text-sm font-medium text-foreground">Series order</div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    updatePlugin(plugin.instanceId, (current) =>
+                                      current.type === "mangadex-reader"
+                                        ? {
+                                            ...current,
+                                            config: {
+                                              ...current.config,
+                                              series: [...current.config.series, createMangaSourceDraft()],
+                                            },
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                >
+                                  <Plus className="mr-2 size-4" />
+                                  Add series
+                                </Button>
+                              </div>
+
+                              <div className="space-y-3">
+                                {plugin.config.series.map((series, seriesIndex) => (
+                                  <div
+                                    key={series.id}
+                                    className="rounded-[1.25rem] border border-border bg-background px-4 py-4"
+                                  >
+                                    <div className="grid gap-3 md:grid-cols-[1fr_1.2fr_8rem_auto_auto_auto]">
+                                      <input
+                                        className="rounded-2xl border border-border bg-background px-4 py-3 text-sm"
+                                        type="text"
+                                        value={series.label}
+                                        onChange={(event) =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "mangadex-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: current.config.series.map((item) =>
+                                                      item.id === series.id
+                                                        ? { ...item, label: event.target.value }
+                                                        : item,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      />
+                                      <input
+                                        className="rounded-2xl border border-border bg-background px-4 py-3 text-sm"
+                                        type="text"
+                                        placeholder="MangaDex title URL or ID"
+                                        value={series.mangaId}
+                                        onChange={(event) =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "mangadex-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: current.config.series.map((item) =>
+                                                      item.id === series.id
+                                                        ? { ...item, mangaId: event.target.value }
+                                                        : item,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      />
+                                      <input
+                                        className="rounded-2xl border border-border bg-background px-4 py-3 text-sm"
+                                        type="text"
+                                        value={series.translatedLanguage}
+                                        onChange={(event) =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "mangadex-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: current.config.series.map((item) =>
+                                                      item.id === series.id
+                                                        ? { ...item, translatedLanguage: event.target.value }
+                                                        : item,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      />
+                                      <Button
+                                        variant="outline"
+                                        disabled={seriesIndex === 0}
+                                        onClick={() =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "mangadex-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: moveArrayItem(
+                                                      current.config.series,
+                                                      seriesIndex,
+                                                      seriesIndex - 1,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      >
+                                        <ArrowUp className="size-4" />
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        disabled={seriesIndex >= plugin.config.series.length - 1}
+                                        onClick={() =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "mangadex-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: moveArrayItem(
+                                                      current.config.series,
+                                                      seriesIndex,
+                                                      seriesIndex + 1,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      >
+                                        <ArrowDown className="size-4" />
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        disabled={plugin.config.series.length <= 1}
+                                        onClick={() =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "mangadex-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: current.config.series.filter((item) => item.id !== series.id),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      >
+                                        <Trash2 className="size-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <p className="text-sm leading-6 text-muted-foreground">
+                                This shelf is read in order: one series through its volumes first,
+                                then its remaining chapters, before the next one begins.
+                              </p>
+                            </div>
                           ) : (
-                            <div className="mt-5 grid gap-4 md:grid-cols-2">
-                              <label className="block md:col-span-2">
-                                <span className="text-sm font-medium text-foreground">MangaDex title URL or ID</span>
-                                <input
-                                  className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
-                                  type="text"
-                                  value={plugin.config.mangaId}
-                                  onChange={(event) =>
+                            <div className="mt-5 space-y-4">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="text-sm font-medium text-foreground">Series order</div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
                                     updatePlugin(plugin.instanceId, (current) =>
-                                      current.type === "mangadex-reader"
+                                      current.type === "readcomiconline-reader"
                                         ? {
                                             ...current,
                                             config: {
                                               ...current.config,
-                                              mangaId: event.target.value,
+                                              series: [...current.config.series, createReadComicsSourceDraft()],
                                             },
                                           }
                                         : current,
                                     )
                                   }
-                                />
-                              </label>
+                                >
+                                  <Plus className="mr-2 size-4" />
+                                  Add series
+                                </Button>
+                              </div>
 
-                              <label className="block">
-                                <span className="text-sm font-medium text-foreground">Language</span>
-                                <input
-                                  className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
-                                  type="text"
-                                  value={plugin.config.translatedLanguage}
-                                  onChange={(event) =>
-                                    updatePlugin(plugin.instanceId, (current) =>
-                                      current.type === "mangadex-reader"
-                                        ? {
-                                            ...current,
-                                            config: {
-                                              ...current.config,
-                                              translatedLanguage: event.target.value,
-                                            },
-                                          }
-                                        : current,
-                                    )
-                                  }
-                                />
-                              </label>
+                              <div className="space-y-3">
+                                {plugin.config.series.map((series, seriesIndex) => (
+                                  <div
+                                    key={series.id}
+                                    className="rounded-[1.25rem] border border-border bg-background px-4 py-4"
+                                  >
+                                    <div className="grid gap-3 md:grid-cols-[1fr_1.6fr_auto_auto_auto]">
+                                      <input
+                                        className="rounded-2xl border border-border bg-background px-4 py-3 text-sm"
+                                        type="text"
+                                        value={series.label}
+                                        onChange={(event) =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "readcomiconline-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: current.config.series.map((item) =>
+                                                      item.id === series.id
+                                                        ? { ...item, label: event.target.value }
+                                                        : item,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      />
+                                      <input
+                                        className="rounded-2xl border border-border bg-background px-4 py-3 text-sm"
+                                        type="url"
+                                        placeholder="https://readcomiconline.li/Comic/Series-Name"
+                                        value={series.seriesUrl}
+                                        onChange={(event) =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "readcomiconline-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: current.config.series.map((item) =>
+                                                      item.id === series.id
+                                                        ? { ...item, seriesUrl: event.target.value }
+                                                        : item,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      />
+                                      <Button
+                                        variant="outline"
+                                        disabled={seriesIndex === 0}
+                                        onClick={() =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "readcomiconline-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: moveArrayItem(
+                                                      current.config.series,
+                                                      seriesIndex,
+                                                      seriesIndex - 1,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      >
+                                        <ArrowUp className="size-4" />
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        disabled={seriesIndex >= plugin.config.series.length - 1}
+                                        onClick={() =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "readcomiconline-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: moveArrayItem(
+                                                      current.config.series,
+                                                      seriesIndex,
+                                                      seriesIndex + 1,
+                                                    ),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      >
+                                        <ArrowDown className="size-4" />
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        disabled={plugin.config.series.length <= 1}
+                                        onClick={() =>
+                                          updatePlugin(plugin.instanceId, (current) =>
+                                            current.type === "readcomiconline-reader"
+                                              ? {
+                                                  ...current,
+                                                  config: {
+                                                    ...current.config,
+                                                    series: current.config.series.filter((item) => item.id !== series.id),
+                                                  },
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      >
+                                        <Trash2 className="size-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
 
-                              <label className="block">
-                                <span className="text-sm font-medium text-foreground">Selection mode</span>
-                                <input
-                                  className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-muted-foreground"
-                                  type="text"
-                                  readOnly
-                                  value="backlog"
-                                />
-                              </label>
-
-                              <p className="md:col-span-2 text-sm leading-6 text-muted-foreground">
-                                This reader walks a MangaDex series in order and serves the next
-                                unread volume each day.
+                              <p className="text-sm leading-6 text-muted-foreground">
+                                This shelf moves one chapter at a time, in the exact order you set here.
                               </p>
                             </div>
                           )}

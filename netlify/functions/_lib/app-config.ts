@@ -7,8 +7,11 @@ import type {
   FontScale,
   FunnyPagesProvider,
   FunnyPagesSource,
+  MangaSource,
   MangaSelectionStrategy,
   PluginInstance,
+  ReadComicsSelectionStrategy,
+  ReadComicsSource,
   RssSource,
   ThemeMode,
   TypographyPreset,
@@ -59,6 +62,7 @@ const FEED_STRATEGIES = new Set<FeedSelectionStrategy>([
 ]);
 const ALBUM_STRATEGIES = new Set<AlbumSelectionStrategy>(["library-random", "recently-added"]);
 const MANGA_STRATEGIES = new Set<MangaSelectionStrategy>(["backlog"]);
+const READ_COMICS_STRATEGIES = new Set<ReadComicsSelectionStrategy>(["backlog"]);
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -185,6 +189,26 @@ function normalizeMangaId(value: unknown, fallback: string) {
   return match?.[0].toLowerCase() ?? fallback;
 }
 
+function normalizeReadComicsSeriesUrl(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const validUrl = /^https?:\/\/readcomiconline\.li\/Comic\/[^?#]+/i.test(trimmed)
+    ? trimmed
+    : /^\/Comic\/[^?#]+/i.test(trimmed)
+      ? `https://readcomiconline.li${trimmed}`
+      : fallback;
+
+  return validUrl.replace(/\/+$/g, "");
+}
+
 function humanizeSlug(value: string) {
   return value
     .split("-")
@@ -217,6 +241,86 @@ function normalizeFunnyPagesUrl(value: unknown, fallback = "") {
 
   const trimmed = value.trim();
   return /^https?:\/\//.test(trimmed) ? trimmed : fallback;
+}
+
+function normalizeMangaSeries(value: unknown, fallback: MangaSource[]) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  const series = value
+    .map((entry, index) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const candidate = entry as Partial<MangaSource>;
+      const mangaId = normalizeMangaId(candidate.mangaId, "");
+
+      if (!mangaId) {
+        return null;
+      }
+
+      const label =
+        typeof candidate.label === "string" && candidate.label.trim().length > 0
+          ? candidate.label.trim()
+          : `Series ${index + 1}`;
+      const translatedLanguage =
+        typeof candidate.translatedLanguage === "string" &&
+        /^[a-z-]{2,8}$/i.test(candidate.translatedLanguage.trim())
+          ? candidate.translatedLanguage.trim().toLowerCase()
+          : "en";
+
+      return {
+        id:
+          typeof candidate.id === "string" && candidate.id.trim().length > 0
+            ? slugify(candidate.id)
+            : slugify(`${label}-${mangaId}`),
+        label,
+        mangaId,
+        translatedLanguage,
+      } satisfies MangaSource;
+    })
+    .filter((entry): entry is MangaSource => entry !== null);
+
+  return series.length > 0 ? series : fallback;
+}
+
+function normalizeReadComicsSeries(value: unknown, fallback: ReadComicsSource[]) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  const series = value
+    .map((entry, index) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const candidate = entry as Partial<ReadComicsSource>;
+      const seriesUrl = normalizeReadComicsSeriesUrl(candidate.seriesUrl, "");
+
+      if (!seriesUrl) {
+        return null;
+      }
+
+      const label =
+        typeof candidate.label === "string" && candidate.label.trim().length > 0
+          ? candidate.label.trim()
+          : humanizeSlug(seriesUrl.split("/").pop() ?? `comic-${index + 1}`);
+
+      return {
+        id:
+          typeof candidate.id === "string" && candidate.id.trim().length > 0
+            ? slugify(candidate.id)
+            : slugify(`${label}-${index + 1}`),
+        label,
+        seriesUrl,
+      } satisfies ReadComicsSource;
+    })
+    .filter((entry): entry is ReadComicsSource => entry !== null);
+
+  return series.length > 0 ? series : fallback;
 }
 
 function normalizeFunnyPagesSources(value: unknown, fallback: FunnyPagesSource[]) {
@@ -360,6 +464,36 @@ function normalizePlugin(value: unknown, index: number): PluginInstance | null {
     };
   }
 
+  if (input.type === "reuters-headlines") {
+    const defaults = DEFAULT_USER_CONFIG.plugins.find(
+      (plugin): plugin is Extract<PluginInstance, { type: "reuters-headlines" }> =>
+        plugin.type === "reuters-headlines",
+    )!;
+    const legacyTopics = (value as { config?: { topics?: unknown } }).config?.topics;
+
+    return {
+      instanceId,
+      type: "reuters-headlines",
+      title,
+      enabled: input.enabled !== false,
+      estimatedMinutes:
+        typeof input.estimatedMinutes === "number" && input.estimatedMinutes >= 5
+          ? Math.round(input.estimatedMinutes)
+          : defaults.estimatedMinutes,
+      config: {
+        sources: Array.isArray(input.config?.sources)
+          ? normalizeHeadlineSources(input.config.sources, defaults.config.sources)
+          : topicsToSources(legacyTopics, defaults.config.sources),
+        storyCount:
+          typeof input.config?.storyCount === "number" &&
+          input.config.storyCount >= 1 &&
+          input.config.storyCount <= 10
+            ? Math.round(input.config.storyCount)
+            : defaults.config.storyCount,
+      },
+    };
+  }
+
   if (input.type === "rss-reader") {
     const defaults = DEFAULT_USER_CONFIG.plugins.find(
       (plugin): plugin is Extract<PluginInstance, { type: "rss-reader" }> =>
@@ -436,11 +570,30 @@ function normalizePlugin(value: unknown, index: number): PluginInstance | null {
     const strategy = MANGA_STRATEGIES.has(input.config?.strategy as MangaSelectionStrategy)
       ? (input.config?.strategy as MangaSelectionStrategy)
       : defaults.config.strategy;
+    const legacyConfig = value as {
+      config?: {
+        translatedLanguage?: unknown;
+        mangaId?: unknown;
+      };
+    };
     const translatedLanguage =
-      typeof input.config?.translatedLanguage === "string" &&
-      /^[a-z-]{2,8}$/i.test(input.config.translatedLanguage.trim())
-        ? input.config.translatedLanguage.trim().toLowerCase()
-        : defaults.config.translatedLanguage;
+      typeof legacyConfig.config?.translatedLanguage === "string" &&
+      /^[a-z-]{2,8}$/i.test(legacyConfig.config.translatedLanguage.trim())
+        ? legacyConfig.config.translatedLanguage.trim().toLowerCase()
+        : defaults.config.series[0]?.translatedLanguage ?? "en";
+    const legacySeries = legacyConfig.config?.mangaId
+      ? [
+          {
+            id: `${instanceId}-series-1`,
+            label: "Series 1",
+            mangaId: normalizeMangaId(
+              legacyConfig.config.mangaId,
+              defaults.config.series[0]?.mangaId ?? "",
+            ),
+            translatedLanguage,
+          },
+        ]
+      : null;
 
     return {
       instanceId,
@@ -453,9 +606,35 @@ function normalizePlugin(value: unknown, index: number): PluginInstance | null {
           : defaults.estimatedMinutes,
       config: {
         source: "mangadex",
-        mangaId: normalizeMangaId(input.config?.mangaId, defaults.config.mangaId),
-        translatedLanguage,
+        series: normalizeMangaSeries(input.config?.series ?? legacySeries, defaults.config.series),
         volumesPerDay: 1,
+        strategy,
+      },
+    };
+  }
+
+  if (input.type === "readcomiconline-reader") {
+    const defaults = DEFAULT_USER_CONFIG.plugins.find(
+      (plugin): plugin is Extract<PluginInstance, { type: "readcomiconline-reader" }> =>
+        plugin.type === "readcomiconline-reader",
+    )!;
+    const strategy = READ_COMICS_STRATEGIES.has(input.config?.strategy as ReadComicsSelectionStrategy)
+      ? (input.config?.strategy as ReadComicsSelectionStrategy)
+      : defaults.config.strategy;
+
+    return {
+      instanceId,
+      type: "readcomiconline-reader",
+      title,
+      enabled: input.enabled !== false,
+      estimatedMinutes:
+        typeof input.estimatedMinutes === "number" && input.estimatedMinutes >= 10
+          ? Math.round(input.estimatedMinutes)
+          : defaults.estimatedMinutes,
+      config: {
+        source: "readcomiconline",
+        series: normalizeReadComicsSeries(input.config?.series, defaults.config.series),
+        chaptersPerDay: 1,
         strategy,
       },
     };

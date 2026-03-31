@@ -33,7 +33,38 @@ Give the user a bounded list of essential headlines from a trusted wire source.
 - Manual complete, or threshold complete once all items have been opened or
   skimmed.
 
-## 2. General article reader
+## 2. Reuters Headlines
+
+### Release status
+
+- Target: implemented as an experimental mirror of the AP page.
+
+### Purpose
+
+Give the user an alternate wire-style front page with similar editorial
+constraints to the AP page.
+
+### User config
+
+- Configurable Reuters source lanes using the same section model as AP.
+- Story count target.
+- Any AI-assisted ranking mode is labeled as requiring a user OpenAI key.
+
+### Daily output
+
+- One bounded headlines page with headline, description, and a readable action.
+
+### Completion
+
+- Manual complete, or threshold complete once all items have been opened or
+  skimmed.
+
+### Notes
+
+- Reuters ingestion should be treated as best-effort. Anti-bot behavior may
+  make it less reliable than AP in some environments.
+
+## 3. General article reader
 
 ### Release status
 
@@ -59,7 +90,7 @@ Provide one or more deeper article reads from configured sources.
 
 - Manual complete or unit-complete after the final article is finished.
 
-## 3. Essay of the day
+## 4. Reader
 
 ### Release status
 
@@ -123,7 +154,7 @@ Add one substantial long-form read to the digest.
 
 - Unit-complete when the essay is finished, with manual override.
 
-## 4. Album of the day
+## 5. Album of the day
 
 ### Release status
 
@@ -150,7 +181,7 @@ Pair the reading routine with one intentional music recommendation.
 - Manual complete by default.
 - Optional playback-assisted heuristics later.
 
-## 5. Funny pages
+## 6. Funny pages
 
 ### Release status
 
@@ -175,7 +206,7 @@ Add a small amount of levity through a bounded set of comic strips.
 
 - Manual complete by default.
 
-## 6. Manga reader
+## 7. Manga reader
 
 ### Release status
 
@@ -183,25 +214,53 @@ Add a small amount of levity through a bounded set of comic strips.
 
 ### Purpose
 
-Serve one bounded manga reading unit from a configured title each day.
+Serve one bounded manga reading unit from an ordered configured backlog each
+day.
 
 ### User config
 
-- MangaDex title URL or manga ID.
-- Translation language.
+- Ordered list of MangaDex title URLs or manga IDs.
+- Translation language per series.
 - Volumes per day, currently fixed at `1`.
-- Backlog ordering, starting with simple volume order.
+- Backlog ordering by series, then by numbered volumes, then by non-volume
+  chapters.
 
 ### Daily output
 
-- A single card containing title metadata, one selected volume, and the
-  chapters and pages from that volume rendered inline.
+- A single card containing title metadata and one selected volume rendered as a
+  paginated reader surface.
 
 ### Completion
 
 - Manual complete by default.
 
-## 7. Reader backlog
+## 8. Comics reader
+
+### Release status
+
+- Target: implemented as an experimental ReadComicsOnline-backed reader.
+
+### Purpose
+
+Serve one bounded comics reading unit from an ordered configured backlog each
+day.
+
+### User config
+
+- Ordered list of series URLs.
+- Chapters per day, currently fixed at `1`.
+- Backlog ordering by series order, then chapter order within each series.
+
+### Daily output
+
+- A single card containing title metadata and one selected chapter rendered as a
+  paginated reader surface.
+
+### Completion
+
+- Manual complete by default.
+
+## 9. Reader backlog
 
 ### Release status
 

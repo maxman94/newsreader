@@ -5,7 +5,10 @@ import type {
   FeedSelectionStrategy,
   FunnyPagesSource,
   MangaSelectionStrategy,
+  MangaSource,
   PluginInstance,
+  ReadComicsSource,
+  ReadComicsSelectionStrategy,
 } from "@/types/app";
 import { AP_TOPIC_OPTIONS, DEFAULT_AP_SOURCES } from "@/data/headlines";
 import { FUNNY_PAGES_PRESETS } from "@/data/funny-pages";
@@ -19,7 +22,21 @@ export function createApPlugin(index: number): PluginInstance {
   return {
     instanceId: `ap-headlines-${index}`,
     type: "ap-headlines",
-    title: `AP Headlines ${index}`,
+    title: `Headlines ${index}`,
+    enabled: true,
+    estimatedMinutes: 8,
+    config: {
+      sources: DEFAULT_AP_SOURCES.map((source) => ({ ...source })),
+      storyCount: 4,
+    },
+  };
+}
+
+export function createReutersPlugin(index: number): PluginInstance {
+  return {
+    instanceId: `reuters-headlines-${index}`,
+    type: "reuters-headlines",
+    title: `Reuters ${index}`,
     enabled: true,
     estimatedMinutes: 8,
     config: {
@@ -54,7 +71,7 @@ export function createAlbumPlugin(
   return {
     instanceId: `album-of-the-day-${index}`,
     type: "album-of-the-day",
-    title: `Album of the Day ${index}`,
+    title: `Album ${index}`,
     enabled: true,
     estimatedMinutes: 40,
     config: {
@@ -74,14 +91,45 @@ export function createMangaPlugin(
   return {
     instanceId: `manga-reader-${index}`,
     type: "mangadex-reader",
-    title: `Manga Reader ${index}`,
+    title: `Manga ${index}`,
     enabled: true,
     estimatedMinutes: 25,
     config: {
       source: "mangadex",
-      mangaId: "1a42a1bc-e0c6-4444-80e1-4650f4e70577",
-      translatedLanguage: "en",
+      series: [
+        {
+          id: `mangadex-series-${index}-1`,
+          label: "The Music of Marie",
+          mangaId: "1a42a1bc-e0c6-4444-80e1-4650f4e70577",
+          translatedLanguage: "en",
+        },
+      ],
       volumesPerDay: 1,
+      strategy,
+    },
+  };
+}
+
+export function createReadComicsPlugin(
+  index: number,
+  strategy: ReadComicsSelectionStrategy = "backlog",
+): PluginInstance {
+  return {
+    instanceId: `readcomiconline-reader-${index}`,
+    type: "readcomiconline-reader",
+    title: `Comics ${index}`,
+    enabled: true,
+    estimatedMinutes: 25,
+    config: {
+      source: "readcomiconline",
+      series: [
+        {
+          id: `readcomics-series-${index}-1`,
+          label: "The Walking Dead",
+          seriesUrl: "https://readcomiconline.li/Comic/The-Walking-Dead",
+        },
+      ],
+      chaptersPerDay: 1,
       strategy,
     },
   };
@@ -124,6 +172,23 @@ export function createFunnyPagesSourceDraft(): FunnyPagesSource {
     label: "New strip",
     provider: "gocomics",
     slug: "",
+  };
+}
+
+export function createMangaSourceDraft(): MangaSource {
+  return {
+    id: createFeedId(),
+    label: "New series",
+    mangaId: "",
+    translatedLanguage: "en",
+  };
+}
+
+export function createReadComicsSourceDraft(): ReadComicsSource {
+  return {
+    id: createFeedId(),
+    label: "New comic",
+    seriesUrl: "https://readcomiconline.li/Comic/",
   };
 }
 

@@ -30,6 +30,19 @@ A plugin definition is registered by the app and declares:
 - Completion policy.
 - Capability flags.
 
+In implementation terms, first-party plugins should be added through a small
+registry rather than one-off conditionals spread across the app. That registry
+should centralize:
+
+- Add-page metadata and defaults.
+- Settings-panel description and config normalization.
+- Daily builder selection.
+- Hydration behavior.
+- Reader-surface component mapping.
+
+The goal is that a new plugin is mostly a drop-in registration plus its own
+provider logic, not a cross-file hunt through unrelated UI branches.
+
 ### Plugin instance
 
 A plugin instance is a user-configured copy of a plugin definition. Example:
@@ -204,6 +217,8 @@ Completion should be flexible by plugin type:
 
 - Maintains queue state across days.
 - Chooses the next unread unit according to user order settings.
+- May support ordered multi-series fallbacks, such as finishing series A by
+  volume before advancing to series B.
 
 ### Feed-driven reader
 

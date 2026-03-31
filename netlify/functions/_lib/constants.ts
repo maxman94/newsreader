@@ -46,9 +46,20 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
       },
     },
     {
+      instanceId: "reuters-front-page",
+      type: "reuters-headlines",
+      title: "Reuters Front Page",
+      enabled: false,
+      estimatedMinutes: 8,
+      config: {
+        sources: DEFAULT_AP_SOURCES,
+        storyCount: 4,
+      },
+    },
+    {
       instanceId: "rss-essay",
       type: "rss-reader",
-      title: "Essay Stack",
+      title: "Reader",
       enabled: true,
       estimatedMinutes: 10,
       config: {
@@ -74,15 +85,40 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
     {
       instanceId: "manga-reader",
       type: "mangadex-reader",
-      title: "Manga Reader",
+      title: "Manga",
       enabled: false,
       estimatedMinutes: 25,
       config: {
         source: "mangadex",
-        mangaId: "1a42a1bc-e0c6-4444-80e1-4650f4e70577",
-        translatedLanguage: "en",
+        series: [
+          {
+            id: "mangadex-series-1",
+            label: "The Music of Marie",
+            mangaId: "1a42a1bc-e0c6-4444-80e1-4650f4e70577",
+            translatedLanguage: "en",
+          },
+        ],
         volumesPerDay: 1,
         strategy: DEFAULT_MANGA_SELECTION_STRATEGY,
+      },
+    },
+    {
+      instanceId: "comics-reader",
+      type: "readcomiconline-reader",
+      title: "Comics",
+      enabled: false,
+      estimatedMinutes: 25,
+      config: {
+        source: "readcomiconline",
+        series: [
+          {
+            id: "readcomics-series-1",
+            label: "The Walking Dead",
+            seriesUrl: "https://readcomiconline.li/Comic/The-Walking-Dead",
+          },
+        ],
+        chaptersPerDay: 1,
+        strategy: "backlog",
       },
     },
     {
